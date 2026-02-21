@@ -7,6 +7,7 @@ import { Activity, BarChart3, Grid3X3, ListChecks, Package, Users, Upload as Upl
 
 import FileUpload from "@/components/FileUpload";
 import MetricCard from "@/components/MetricCard";
+import MultiSelect from "@/components/MultiSelect";
 import { ABCBadge, StratBadge } from "@/components/ABCBadge";
 import { ABCParetoChart, ABCCompleteChart, ABCXYZMatrix, ProductSeriesChart } from "@/components/Charts";
 
@@ -38,8 +39,8 @@ const Index = () => {
   // Filters
   const [topN, setTopN] = useState(40);
   const [estratFilter, setEstratFilter] = useState("Todos");
-  const [selectedProd, setSelectedProd] = useState<string>("");
-  const [selectedCliente, setSelectedCliente] = useState("Todos");
+  const [selectedProds, setSelectedProds] = useState<string[]>([]);
+  const [selectedClientes, setSelectedClientes] = useState<string[]>([]);
 
   const handleLoad = useCallback(async () => {
     if (!fileProd) { setError("Envie a base de Produção primeiro."); return; }
@@ -88,7 +89,8 @@ const Index = () => {
         clientes: clientesList,
         hasClientes,
       });
-      setSelectedProd(products[0]?.SKU_LABEL ?? "");
+      setSelectedProds([]);
+      setSelectedClientes([]);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -96,13 +98,16 @@ const Index = () => {
     }
   }, [fileProd, fileCli]);
 
-  // Client-filtered view
+  // Client-filtered view (merge multiple clients)
   const clienteView = useMemo(() => {
-    if (!state || selectedCliente === "Todos") return null;
-    const { wide, monthCols } = toWide(state.prodLong, selectedCliente);
+    if (!state || selectedClientes.length === 0) return null;
+    // Filter prodLong for selected clients, then run pipeline
+    const filteredLong = state.prodLong.filter(r => selectedClientes.includes((r as any).cliente ?? ""));
+    if (filteredLong.length === 0) return null;
+    const { wide, monthCols } = toWide(filteredLong);
     const products = pipeline(wide, monthCols);
     return { products, monthCols };
-  }, [state, selectedCliente]);
+  }, [state, selectedClientes]);
 
   const filteredRec = useMemo(() => {
     if (!state) return [];
@@ -113,9 +118,14 @@ const Index = () => {
     return list;
   }, [state, estratFilter]);
 
-  const selectedProduct = useMemo(() => {
-    return state?.products.find(p => p.SKU_LABEL === selectedProd) ?? null;
-  }, [state, selectedProd]);
+  const selectedProductsList = useMemo(() => {
+    if (!state || selectedProds.length === 0) return [];
+    return state.products.filter(p => selectedProds.includes(p.SKU_LABEL));
+  }, [state, selectedProds]);
+
+  const productOptions = useMemo(() => {
+    return state?.products.map(p => p.SKU_LABEL) ?? [];
+  }, [state]);
 
   // Upload screen
   if (!state) {
@@ -298,35 +308,37 @@ const Index = () => {
           {/* Produto */}
           <TabsContent value="produto">
             <div className="metric-card space-y-4">
-              <Select value={selectedProd} onValueChange={setSelectedProd}>
-                <SelectTrigger className="w-full font-mono text-xs"><SelectValue placeholder="Selecione um produto" /></SelectTrigger>
-                <SelectContent className="max-h-60">
-                  {state.products.map(p => (
-                    <SelectItem key={p.SKU_LABEL} value={p.SKU_LABEL} className="font-mono text-xs">{p.SKU_LABEL}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelect
+                options={productOptions}
+                selected={selectedProds}
+                onChange={setSelectedProds}
+                placeholder="Buscar produto por código ou palavra-chave..."
+              />
 
-              {selectedProduct && (
-                <>
-                  <h3 className="text-sm font-semibold text-foreground">Série Mensal — {selectedProduct.codigoProduto}</h3>
-                  <ProductSeriesChart data={selectedProduct} monthCols={state.monthCols} />
+              {selectedProductsList.map(prod => (
+                <div key={prod.SKU_LABEL} className="space-y-4 border border-border rounded-lg p-4">
+                  <h3 className="text-sm font-semibold text-foreground">Série Mensal — {prod.codigoProduto}</h3>
+                  <ProductSeriesChart data={prod} monthCols={state.monthCols} />
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <MetricCard label="Volume Anual" value={`${Math.round(selectedProduct.volumeAnual).toLocaleString()} kg`} />
-                    <MetricCard label="ABC-XYZ" value={selectedProduct.abcXyz} />
-                    <MetricCard label="CV" value={selectedProduct.cv.toFixed(2)} />
-                    <MetricCard label="Tendência" value={selectedProduct.trendLabel} sub={selectedProduct.trendPct != null ? `${selectedProduct.trendPct.toFixed(1)}%` : undefined} />
+                    <MetricCard label="Volume Anual" value={`${Math.round(prod.volumeAnual).toLocaleString()} kg`} />
+                    <MetricCard label="ABC-XYZ" value={prod.abcXyz} />
+                    <MetricCard label="CV" value={prod.cv.toFixed(2)} />
+                    <MetricCard label="Tendência" value={prod.trendLabel} sub={prod.trendPct != null ? `${prod.trendPct.toFixed(1)}%` : undefined} />
                   </div>
 
-                  {selectedProduct.top1Cliente && (
+                  {prod.top1Cliente && (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      <MetricCard label="Top1 Cliente" value={selectedProduct.top1Cliente} />
-                      <MetricCard label="Top1 Share" value={`${((selectedProduct.top1ShareProduto ?? 0) * 100).toFixed(1)}%`} />
-                      <MetricCard label="HHI Produto" value={(selectedProduct.hhiProduto ?? 0).toFixed(3)} />
+                      <MetricCard label="Top1 Cliente" value={prod.top1Cliente} />
+                      <MetricCard label="Top1 Share" value={`${((prod.top1ShareProduto ?? 0) * 100).toFixed(1)}%`} />
+                      <MetricCard label="HHI Produto" value={(prod.hhiProduto ?? 0).toFixed(3)} />
                     </div>
                   )}
-                </>
+                </div>
+              ))}
+
+              {selectedProds.length === 0 && (
+                <p className="text-sm text-muted-foreground">Selecione um ou mais produtos para visualizar.</p>
               )}
             </div>
           </TabsContent>
@@ -335,22 +347,19 @@ const Index = () => {
           {state.hasClientes && (
             <TabsContent value="cliente">
               <div className="metric-card space-y-4">
-                <Select value={selectedCliente} onValueChange={setSelectedCliente}>
-                  <SelectTrigger className="w-full font-mono text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    <SelectItem value="Todos">Todos</SelectItem>
-                    {state.clientes.map(c => (
-                      <SelectItem key={c} value={c} className="font-mono text-xs">{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <MultiSelect
+                  options={state.clientes}
+                  selected={selectedClientes}
+                  onChange={setSelectedClientes}
+                  placeholder="Buscar cliente por código ou palavra-chave..."
+                />
 
-                {selectedCliente === "Todos" ? (
-                  <p className="text-sm text-muted-foreground">Selecione um cliente para ver o mix (ABC/XYZ do cliente).</p>
+                {selectedClientes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Selecione um ou mais clientes para ver o mix (ABC/XYZ).</p>
                 ) : clienteView ? (
                   <>
                     <p className="text-xs text-muted-foreground font-mono">
-                      Cliente: {selectedCliente} · {clienteView.products.length} produtos · {clienteView.monthCols.length} meses
+                      {selectedClientes.length} cliente(s) · {clienteView.products.length} produtos · {clienteView.monthCols.length} meses
                     </p>
                     <ABCParetoChart data={clienteView.products} topN={Math.min(40, clienteView.products.length)} />
                     <ABCXYZMatrix data={clienteView.products} />
@@ -385,7 +394,7 @@ const Index = () => {
                     </div>
                   </>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Sem dados para este cliente.</p>
+                  <p className="text-sm text-muted-foreground">Sem dados para os clientes selecionados.</p>
                 )}
               </div>
             </TabsContent>
