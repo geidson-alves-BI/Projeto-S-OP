@@ -164,6 +164,7 @@ const Index = () => {
   const countB = state.products.filter(p => p.classeABC === "B").length;
   const countC = state.products.filter(p => p.classeABC === "C").length;
   const countMTS = state.products.filter(p => (p.estrategiaFinal ?? p.estrategiaBase).includes("MTS")).length;
+  const volumeTotal = state.products.reduce((sum, p) => sum + p.volumeAnual, 0);
 
   return (
     <div className="min-h-screen">
@@ -187,6 +188,7 @@ const Index = () => {
       {/* Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 px-6 py-4">
         <MetricCard label="Total SKUs" value={state.products.length} />
+        <MetricCard label="Vol. Total Produzido" value={`${Math.round(volumeTotal).toLocaleString()} kg`} />
         <MetricCard label="Classe A" value={countA} sub={`${Math.round(countA / state.products.length * 100)}% dos SKUs`} />
         <MetricCard label="Classe B" value={countB} />
         <MetricCard label="Classe C" value={countC} />
@@ -314,6 +316,12 @@ const Index = () => {
                 onChange={setSelectedProds}
                 placeholder="Buscar produto por código ou palavra-chave..."
               />
+
+              {selectedProductsList.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <MetricCard label="Vol. Total Selecionado" value={`${Math.round(selectedProductsList.reduce((s, p) => s + p.volumeAnual, 0)).toLocaleString()} kg`} sub={`${selectedProductsList.length} produto(s)`} />
+                </div>
+              )}
 
               {selectedProductsList.map(prod => (
                 <div key={prod.SKU_LABEL} className="space-y-4 border border-border rounded-lg p-4">
