@@ -6,6 +6,7 @@ import {
   getUniqueClientes,
   type ProductData, type LongRow, type ProductConcentration, type PortfolioConcentration,
 } from "@/lib/pcpEngine";
+import type { RMData } from "@/lib/rmEngine";
 
 export interface AppState {
   products: ProductData[];
@@ -27,6 +28,8 @@ interface AppDataContextType {
   setFileCli: (f: File | null) => void;
   handleLoad: () => Promise<void>;
   reset: () => void;
+  rmData: RMData[] | null;
+  setRMData: (data: RMData[] | null) => void;
 }
 
 const AppDataContext = createContext<AppDataContextType | null>(null);
@@ -43,6 +46,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<AppState | null>(null);
+  const [rmData, setRMData] = useState<RMData[] | null>(null);
 
   const handleLoad = useCallback(async () => {
     if (!fileProd) { setError("Envie a base de Produção primeiro."); return; }
@@ -104,6 +108,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     <AppDataContext.Provider value={{
       state, loading, error, fileProd, fileCli,
       setFileProd, setFileCli, handleLoad, reset,
+      rmData, setRMData,
     }}>
       {children}
     </AppDataContext.Provider>
