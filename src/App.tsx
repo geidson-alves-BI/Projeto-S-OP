@@ -10,6 +10,8 @@ import UploadPage from "@/pages/UploadPage";
 import AbcXyzPage from "@/pages/AbcXyzPage";
 import ForecastPage from "@/pages/ForecastPage";
 import MtsPage from "@/pages/MtsPage";
+import RMUploadPage from "@/pages/RMUploadPage";
+import RMSlaPage from "@/pages/RMSlaPage";
 import PlaceholderPage from "@/pages/PlaceholderPage";
 import NotFound from "./pages/NotFound";
 
@@ -30,8 +32,8 @@ const App = () => (
               <Route path="/abc-xyz" element={<AbcXyzPage />} />
               <Route path="/forecast" element={<ForecastPage />} />
               <Route path="/mts" element={<MtsPage />} />
-              <Route path="/rm-upload" element={<PlaceholderPage title="Upload Matéria-Prima" description="Upload de base RM e MPs necessárias. Em breve." />} />
-              <Route path="/rm-sla" element={<PlaceholderPage title="Gestão SLA" description="Painel dinâmico de SLA por seleção (90%, 95%, 98%, 99%). Em breve." />} />
+              <Route path="/rm-upload" element={<RMUploadPage />} />
+              <Route path="/rm-sla" element={<RMSlaPage />} />
               <Route path="/financeiro" element={<PlaceholderPage title="Financeiro" description="Investimento por SKU e por RM. Em breve." />} />
               <Route path="/relatorios" element={<PlaceholderPage title="Relatórios / Pack S&OP" description="Geração de pack S&OP com export CSV/Excel. Em breve." />} />
             </Route>
