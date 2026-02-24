@@ -22,6 +22,7 @@ const navGroups = [
     items: [
       { to: "/forecast", label: "Forecast" },
       { to: "/mts", label: "MTS / MTO" },
+      { to: "/complexidade", label: "Complexidade" },
     ],
   },
   {
@@ -35,7 +36,7 @@ const navGroups = [
     label: "Financeiro",
     items: [
       { to: "/financeiro", label: "Investimento" },
-      { to: "/relatorios", label: "Relatórios / Pack" },
+      { to: "/relatorios", label: "Pack S&OP" },
     ],
   },
 ];

@@ -7,11 +7,15 @@ import { AppDataProvider } from "@/contexts/AppDataContext";
 import Layout from "@/components/Layout";
 import HomePage from "@/pages/HomePage";
 import UploadPage from "@/pages/UploadPage";
+import DemandaFGPage from "@/pages/DemandaFGPage";
 import AbcXyzPage from "@/pages/AbcXyzPage";
 import ForecastPage from "@/pages/ForecastPage";
 import MtsPage from "@/pages/MtsPage";
 import RMUploadPage from "@/pages/RMUploadPage";
 import RMSlaPage from "@/pages/RMSlaPage";
+import FinanceiroPage from "@/pages/FinanceiroPage";
+import RelatoriosPage from "@/pages/RelatoriosPage";
+import ComplexidadePage from "@/pages/ComplexidadePage";
 import PlaceholderPage from "@/pages/PlaceholderPage";
 import NotFound from "./pages/NotFound";
 
@@ -28,14 +32,15 @@ const App = () => (
             <Route element={<Layout />}>
               <Route path="/" element={<HomePage />} />
               <Route path="/upload" element={<UploadPage />} />
-              <Route path="/demanda" element={<PlaceholderPage title="Demanda FG" description="Upload, validação e visão histórica de demanda de Finished Goods. Em breve." />} />
+              <Route path="/demanda" element={<DemandaFGPage />} />
               <Route path="/abc-xyz" element={<AbcXyzPage />} />
               <Route path="/forecast" element={<ForecastPage />} />
               <Route path="/mts" element={<MtsPage />} />
               <Route path="/rm-upload" element={<RMUploadPage />} />
               <Route path="/rm-sla" element={<RMSlaPage />} />
-              <Route path="/financeiro" element={<PlaceholderPage title="Financeiro" description="Investimento por SKU e por RM. Em breve." />} />
-              <Route path="/relatorios" element={<PlaceholderPage title="Relatórios / Pack S&OP" description="Geração de pack S&OP com export CSV/Excel. Em breve." />} />
+              <Route path="/financeiro" element={<FinanceiroPage />} />
+              <Route path="/relatorios" element={<RelatoriosPage />} />
+              <Route path="/complexidade" element={<ComplexidadePage />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
