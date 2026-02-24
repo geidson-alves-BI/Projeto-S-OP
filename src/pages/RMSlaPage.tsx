@@ -8,7 +8,7 @@ import MetricCard from "@/components/MetricCard";
 import { useAppData } from "@/contexts/AppDataContext";
 import { getRMSummary } from "@/lib/rmEngine";
 
-const SLA_OPTIONS = [90, 95, 98, 99];
+const SLA_OPTIONS = [50, 84, 98, 99.9];
 
 function downloadCSV(rows: string[][], filename: string) {
   const csv = rows.map(r => r.join(";")).join("\n");
@@ -24,7 +24,7 @@ function downloadCSV(rows: string[][], filename: string) {
 export default function RMSlaPage() {
   const { rmData } = useAppData();
   const navigate = useNavigate();
-  const [slaLevel, setSlaLevel] = useState(95);
+  const [slaLevel, setSlaLevel] = useState(84);
   const [sortBy, setSortBy] = useState<"gap" | "cobertura" | "investimento">("gap");
 
   const summary = useMemo(() => rmData ? getRMSummary(rmData, slaLevel) : null, [rmData, slaLevel]);
@@ -110,9 +110,9 @@ export default function RMSlaPage() {
           </label>
           <div className="max-w-md">
             <Slider
-              min={90}
-              max={99}
-              step={1}
+              min={50}
+              max={100}
+              step={0.1}
               value={[slaLevel]}
               onValueChange={([v]) => {
                 const nearest = SLA_OPTIONS.reduce((prev, curr) =>
