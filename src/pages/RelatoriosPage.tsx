@@ -125,14 +125,16 @@ export default function RelatoriosPage() {
 
     // Sheet 4: RM data
     if (rmData) {
-      const header = ["Código RM", "Descrição", "Un.", "Consumo Mensal", "Lead Time", "Estoque Atual", "Cobertura (dias)", "Custo Unit.", "Target SLA 95%"];
+      const header = ["Cód. Produto", "Denominação", "Fornecedor", "Origem", "Estoque Disp.", "Est. Segurança", "Consumo 30d", "CM 90d", "TR (dias)", "Cobertura (dias)", "Custo U$", "Target SLA 95%"];
       const rows = rmData.map(rm => [
-        rm.codigoRM, rm.descricao, rm.unidade,
-        String(Math.round(rm.consumoMensal)),
-        String(rm.leadTimeDias),
-        String(Math.round(rm.estoqueAtual)),
+        rm.codProduto, rm.denominacao, rm.fornecedor, rm.origem,
+        String(Math.round(rm.estoqueDisponivel)),
+        String(Math.round(rm.estoqueSeguranca)),
+        String(Math.round(rm.consumo30d)),
+        String(Math.round(rm.cm90d)),
+        String(rm.tempoReposicao),
         String(rm.coberturaDias),
-        rm.custoUnitario.toFixed(2),
+        rm.custoLiquidoUS.toFixed(2),
         String(rm.slaTargets[95] ?? 0),
       ]);
       sheets.push({ name: "materia_prima", rows: [header, ...rows] });

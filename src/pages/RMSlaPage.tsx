@@ -33,9 +33,9 @@ export default function RMSlaPage() {
     if (!rmData) return [];
     return rmData.map(rm => {
       const target = rm.slaTargets[slaLevel] ?? 0;
-      const gap = target - rm.estoqueAtual;
-      const investimento = Math.max(0, gap) * rm.custoUnitario;
-      const status = rm.estoqueAtual >= target ? "ok" : "below";
+      const gap = target - rm.estoqueDisponivel;
+      const investimento = Math.max(0, gap) * rm.custoLiquidoUS;
+      const status = rm.estoqueDisponivel >= target ? "ok" : "below";
       return { ...rm, target, gap, investimento, status };
     }).sort((a, b) => {
       if (sortBy === "gap") return b.gap - a.gap;
@@ -61,20 +61,25 @@ export default function RMSlaPage() {
 
   const handleExport = () => {
     const header = [
-      "Código RM", "Descrição", "Unidade", "Consumo Mensal", "Consumo Diário",
-      "Lead Time", "Estoque Atual", "Cobertura (dias)", `Target SLA ${slaLevel}%`,
-      "Gap", "Custo Unit.", "Investimento (R$)", "Status",
+      "Cód. Produto", "Denominação", "Fornecedor", "Origem",
+      "Estoque Disponível", "Estoque Segurança", "Estoque Pedido",
+      "Consumo 30d", "CM 90d", "Consumo/Dia",
+      "TR (dias)", "Cobertura (dias)", `Target SLA ${slaLevel}%`,
+      "Gap", "Custo Unit. U$", "Investimento U$", "Status",
     ];
     const rows = enriched.map(rm => [
-      rm.codigoRM, rm.descricao, rm.unidade,
-      String(Math.round(rm.consumoMensal)),
+      rm.codProduto, rm.denominacao, rm.fornecedor, rm.origem,
+      String(Math.round(rm.estoqueDisponivel)),
+      String(Math.round(rm.estoqueSeguranca)),
+      String(Math.round(rm.estoquePedido)),
+      String(Math.round(rm.consumo30d)),
+      String(Math.round(rm.cm90d)),
       String(Math.round(rm.consumoDiario)),
-      String(rm.leadTimeDias),
-      String(Math.round(rm.estoqueAtual)),
+      String(rm.tempoReposicao),
       String(rm.coberturaDias),
       String(rm.target),
       String(Math.round(rm.gap)),
-      rm.custoUnitario.toFixed(2),
+      rm.custoLiquidoUS.toFixed(2),
       rm.investimento.toFixed(2),
       rm.status === "ok" ? "OK" : "Abaixo SLA",
     ]);
@@ -155,7 +160,7 @@ export default function RMSlaPage() {
           <MetricCard label="Abaixo SLA" value={summary.belowSLA} />
           <MetricCard label="Dentro SLA" value={summary.aboveSLA} />
           <MetricCard label="Cobertura Média" value={`${summary.coberturMedia} dias`} />
-          <MetricCard label="Investimento p/ SLA" value={`R$ ${summary.investimentoTotal.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} />
+          <MetricCard label="Investimento p/ SLA" value={`U$ ${summary.investimentoTotal.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} />
         </div>
       )}
 
@@ -165,36 +170,40 @@ export default function RMSlaPage() {
           <thead className="sticky top-0 z-10">
             <tr>
               <th>#</th>
-              <th>Código RM</th>
-              <th>Descrição</th>
-              <th>Un.</th>
+              <th>Cód. Produto</th>
+              <th>Denominação</th>
+              <th>Fornecedor</th>
+              <th>Estoque Disp.</th>
+              <th>Est. Seg.</th>
+              <th>Pedido</th>
               <th>Consumo/Dia</th>
-              <th>Lead Time</th>
-              <th>Estoque Atual</th>
+              <th>TR (dias)</th>
               <th>Cobertura</th>
               <th>Target SLA</th>
               <th>Gap</th>
-              <th>Investimento</th>
+              <th>Investimento U$</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {enriched.slice(0, 100).map((rm, i) => (
-              <tr key={rm.codigoRM + i}>
+              <tr key={rm.codProduto + i}>
                 <td className="text-xs text-muted-foreground">{i + 1}</td>
-                <td className="font-mono text-xs font-semibold">{rm.codigoRM}</td>
-                <td className="text-xs max-w-[200px] truncate" title={rm.descricao}>{rm.descricao}</td>
-                <td className="text-xs text-muted-foreground">{rm.unidade}</td>
+                <td className="font-mono text-xs font-semibold">{rm.codProduto}</td>
+                <td className="text-xs max-w-[200px] truncate" title={rm.denominacao}>{rm.denominacao}</td>
+                <td className="text-xs max-w-[120px] truncate" title={rm.fornecedor}>{rm.fornecedor || "-"}</td>
+                <td className="text-right font-mono text-xs">{Math.round(rm.estoqueDisponivel).toLocaleString()}</td>
+                <td className="text-right font-mono text-xs">{Math.round(rm.estoqueSeguranca).toLocaleString() || "-"}</td>
+                <td className="text-right font-mono text-xs">{Math.round(rm.estoquePedido).toLocaleString() || "-"}</td>
                 <td className="text-right font-mono text-xs">{Math.round(rm.consumoDiario).toLocaleString()}</td>
-                <td className="text-right font-mono text-xs">{rm.leadTimeDias || "-"}</td>
-                <td className="text-right font-mono text-xs">{Math.round(rm.estoqueAtual).toLocaleString()}</td>
+                <td className="text-right font-mono text-xs">{rm.tempoReposicao || "-"}</td>
                 <td className="text-right font-mono text-xs">{rm.coberturaDias} d</td>
                 <td className="text-right font-mono text-xs font-bold">{rm.target.toLocaleString()}</td>
                 <td className={`text-right font-mono text-xs font-bold ${rm.gap > 0 ? "text-destructive" : "text-success"}`}>
                   {rm.gap > 0 ? `+${Math.round(rm.gap).toLocaleString()}` : Math.round(rm.gap).toLocaleString()}
                 </td>
                 <td className="text-right font-mono text-xs">
-                  {rm.investimento > 0 ? `R$ ${rm.investimento.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "-"}
+                  {rm.investimento > 0 ? `U$ ${rm.investimento.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "-"}
                 </td>
                 <td>
                   {rm.status === "ok"

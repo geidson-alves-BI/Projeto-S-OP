@@ -52,14 +52,14 @@ export default function FinanceiroPage() {
     if (!rmData) return [];
     return rmData.map(rm => {
       const target = rm.slaTargets[slaLevel] ?? 0;
-      const gap = Math.max(0, target - rm.estoqueAtual);
-      const investimento = gap * rm.custoUnitario;
+      const gap = Math.max(0, target - rm.estoqueDisponivel);
+      const investimento = gap * rm.custoLiquidoUS;
       return { ...rm, target, gap, investimento };
     }).sort((a, b) => sortByRm === "investimento" ? b.investimento - a.investimento : a.coberturaDias - b.coberturaDias);
   }, [rmData, slaLevel, sortByRm]);
 
   const totalRmInvestimento = rmInvestment.reduce((s, r) => s + r.investimento, 0);
-  const totalRmEstoque = rmData ? rmData.reduce((s, r) => s + r.estoqueAtual * r.custoUnitario, 0) : 0;
+  const totalRmEstoque = rmData ? rmData.reduce((s, r) => s + r.estoqueDisponivel * r.custoLiquidoUS, 0) : 0;
 
   const handleExportSku = () => {
     const header = ["SKU", "Código", "ABC-XYZ", "Estratégia", "Consumo/Dia (kg)", "Dias Alvo", "Target Estoque (kg)", "Vol. Anual (kg)"];
@@ -75,13 +75,13 @@ export default function FinanceiroPage() {
   };
 
   const handleExportRm = () => {
-    const header = ["Código RM", "Descrição", "Un.", "Estoque Atual", `Target SLA ${slaLevel}%`, "Gap", "Custo Unit.", "Investimento (R$)"];
+    const header = ["Cód. Produto", "Denominação", "Fornecedor", "Estoque Disp.", `Target SLA ${slaLevel}%`, "Gap", "Custo Unit. U$", "Investimento U$"];
     const rows = rmInvestment.map(r => [
-      r.codigoRM, r.descricao, r.unidade,
-      String(Math.round(r.estoqueAtual)),
+      r.codProduto, r.denominacao, r.fornecedor,
+      String(Math.round(r.estoqueDisponivel)),
       String(r.target),
       String(Math.round(r.gap)),
-      r.custoUnitario.toFixed(2),
+      r.custoLiquidoUS.toFixed(2),
       r.investimento.toFixed(2),
     ]);
     downloadCSV([header, ...rows], `financeiro_rm_sla${slaLevel}.csv`);
@@ -189,25 +189,25 @@ export default function FinanceiroPage() {
               <table className="data-table">
                 <thead className="sticky top-0 z-10">
                   <tr>
-                    <th>#</th><th>Código RM</th><th>Descrição</th><th>Un.</th>
-                    <th>Estoque Atual</th><th>Target SLA</th><th>Gap</th><th>Custo Unit.</th><th>Investimento (R$)</th>
+                    <th>#</th><th>Cód. Produto</th><th>Denominação</th><th>Fornecedor</th>
+                    <th>Estoque Disp.</th><th>Target SLA</th><th>Gap</th><th>Custo U$</th><th>Investimento U$</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rmInvestment.slice(0, 80).map((r, i) => (
-                    <tr key={r.codigoRM + i}>
+                    <tr key={r.codProduto + i}>
                       <td className="text-xs text-muted-foreground">{i + 1}</td>
-                      <td className="font-mono text-xs font-semibold">{r.codigoRM}</td>
-                      <td className="text-xs max-w-[200px] truncate" title={r.descricao}>{r.descricao}</td>
-                      <td className="text-xs text-muted-foreground">{r.unidade}</td>
-                      <td className="text-right font-mono text-xs">{Math.round(r.estoqueAtual).toLocaleString()}</td>
+                      <td className="font-mono text-xs font-semibold">{r.codProduto}</td>
+                      <td className="text-xs max-w-[200px] truncate" title={r.denominacao}>{r.denominacao}</td>
+                      <td className="text-xs max-w-[120px] truncate">{r.fornecedor || "-"}</td>
+                      <td className="text-right font-mono text-xs">{Math.round(r.estoqueDisponivel).toLocaleString()}</td>
                       <td className="text-right font-mono text-xs">{r.target.toLocaleString()}</td>
                       <td className={`text-right font-mono text-xs font-bold ${r.gap > 0 ? "text-destructive" : "text-success"}`}>
                         {r.gap > 0 ? `+${Math.round(r.gap).toLocaleString()}` : "0"}
                       </td>
-                      <td className="text-right font-mono text-xs">{r.custoUnitario.toFixed(2)}</td>
+                      <td className="text-right font-mono text-xs">{r.custoLiquidoUS.toFixed(2)}</td>
                       <td className="text-right font-mono text-xs font-bold">
-                        {r.investimento > 0 ? `R$ ${Math.round(r.investimento).toLocaleString()}` : "-"}
+                        {r.investimento > 0 ? `U$ ${Math.round(r.investimento).toLocaleString()}` : "-"}
                       </td>
                     </tr>
                   ))}

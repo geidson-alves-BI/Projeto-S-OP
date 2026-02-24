@@ -8,13 +8,30 @@ import { parseFile } from "@/lib/fileParser";
 import { validateRMColumns, processRM } from "@/lib/rmEngine";
 
 const DATA_DICT = [
-  { col: "Código RM", tipo: "Texto", obrigatório: true, desc: "Identificador único da matéria-prima" },
-  { col: "Descrição", tipo: "Texto", obrigatório: true, desc: "Nome/descrição do material" },
-  { col: "Unidade", tipo: "Texto", obrigatório: true, desc: "Unidade de medida (kg, un, l, etc.)" },
-  { col: "Consumo Mensal", tipo: "Numérico", obrigatório: true, desc: "Consumo médio mensal" },
-  { col: "Lead Time", tipo: "Numérico", obrigatório: false, desc: "Prazo de entrega em dias" },
-  { col: "Custo Unitário", tipo: "Numérico", obrigatório: false, desc: "Custo por unidade (R$)" },
-  { col: "Estoque Atual", tipo: "Numérico", obrigatório: false, desc: "Saldo atual em estoque" },
+  // Identificação
+  { group: "🧾 Identificação", col: "Cód. Produto", tipo: "Texto", obrigatório: true, desc: "Código identificador do produto / matéria-prima" },
+  { group: "🧾 Identificação", col: "Denominação", tipo: "Texto", obrigatório: true, desc: "Nome / descrição do material" },
+  { group: "🧾 Identificação", col: "Fornecedor", tipo: "Texto", obrigatório: false, desc: "Nome do fornecedor principal" },
+  { group: "🧾 Identificação", col: "Origem", tipo: "Texto", obrigatório: false, desc: "Nacional / Importado" },
+  // Estoque
+  { group: "📦 Estoque", col: "Estoque Disponível (SE)", tipo: "Numérico", obrigatório: true, desc: "Saldo em estoque disponível" },
+  { group: "📦 Estoque", col: "Estoque Segurança (ES)", tipo: "Numérico", obrigatório: false, desc: "Nível de estoque de segurança definido" },
+  { group: "📦 Estoque", col: "Estoque em Pedido (PC aberto)", tipo: "Numérico", obrigatório: false, desc: "Quantidade em pedidos de compra abertos" },
+  // Consumo
+  { group: "📈 Consumo", col: "Consumo Total 30 Dias", tipo: "Numérico", obrigatório: true, desc: "Consumo acumulado nos últimos 30 dias" },
+  { group: "📈 Consumo", col: "Consumo Total 90 Dias", tipo: "Numérico", obrigatório: false, desc: "Consumo acumulado nos últimos 90 dias" },
+  { group: "📈 Consumo", col: "Consumo Total 180 Dias", tipo: "Numérico", obrigatório: false, desc: "Consumo acumulado nos últimos 180 dias" },
+  { group: "📈 Consumo", col: "Consumo Total 365 Dias", tipo: "Numérico", obrigatório: false, desc: "Consumo acumulado nos últimos 365 dias" },
+  { group: "📈 Consumo", col: "CM - Consumo Médio 90 Dias", tipo: "Numérico", obrigatório: false, desc: "Consumo médio mensal (base 90 dias)" },
+  { group: "📈 Consumo", col: "CM - Consumo Médio 180 Dias", tipo: "Numérico", obrigatório: false, desc: "Consumo médio mensal (base 180 dias)" },
+  { group: "📈 Consumo", col: "CM - Consumo Médio 365 Dias", tipo: "Numérico", obrigatório: false, desc: "Consumo médio mensal (base 365 dias)" },
+  // Lead Time
+  { group: "🚚 Lead Time", col: "Tempo Reposição (TR)", tipo: "Numérico", obrigatório: false, desc: "Prazo de reposição em dias" },
+  // Financeiro
+  { group: "🟧 Financeiro", col: "Custo Líquido Última Entrada U$", tipo: "Numérico", obrigatório: false, desc: "Custo unitário da última entrada (USD)" },
+  { group: "🟧 Financeiro", col: "QTD Compra Último Ano", tipo: "Numérico", obrigatório: false, desc: "Quantidade comprada nos últimos 12 meses" },
+  { group: "🟧 Financeiro", col: "Valor Estoque U$ 90 Dias", tipo: "Numérico", obrigatório: false, desc: "Valor do estoque projetado a 90 dias (USD)" },
+  { group: "🟧 Financeiro", col: "Valor Estoque U$ 180 Dias", tipo: "Numérico", obrigatório: false, desc: "Valor do estoque projetado a 180 dias (USD)" },
 ];
 
 export default function RMUploadPage() {
@@ -53,8 +70,11 @@ export default function RMUploadPage() {
     }
   };
 
+  // Group rows for rendering
+  let lastGroup = "";
+
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+    <div className="p-6 space-y-6 max-w-5xl mx-auto">
       <div>
         <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
           <Upload className="h-5 w-5 text-primary" /> Upload Matéria-Prima (RM)
@@ -73,6 +93,7 @@ export default function RMUploadPage() {
           <table className="data-table">
             <thead>
               <tr>
+                <th>Grupo</th>
                 <th>Coluna</th>
                 <th>Tipo</th>
                 <th>Obrigatório</th>
@@ -80,18 +101,25 @@ export default function RMUploadPage() {
               </tr>
             </thead>
             <tbody>
-              {DATA_DICT.map(d => (
-                <tr key={d.col}>
-                  <td className="font-mono text-xs font-semibold">{d.col}</td>
-                  <td className="text-xs">{d.tipo}</td>
-                  <td>
-                    {d.obrigatório
-                      ? <span className="text-xs text-destructive font-bold">Sim</span>
-                      : <span className="text-xs text-muted-foreground">Não</span>}
-                  </td>
-                  <td className="text-xs text-muted-foreground">{d.desc}</td>
-                </tr>
-              ))}
+              {DATA_DICT.map(d => {
+                const showGroup = d.group !== lastGroup;
+                lastGroup = d.group;
+                return (
+                  <tr key={d.col}>
+                    <td className="text-xs font-semibold whitespace-nowrap">
+                      {showGroup ? d.group : ""}
+                    </td>
+                    <td className="font-mono text-xs font-semibold">{d.col}</td>
+                    <td className="text-xs">{d.tipo}</td>
+                    <td>
+                      {d.obrigatório
+                        ? <span className="text-xs text-destructive font-bold">Sim</span>
+                        : <span className="text-xs text-muted-foreground">Não</span>}
+                    </td>
+                    <td className="text-xs text-muted-foreground">{d.desc}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
