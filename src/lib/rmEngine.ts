@@ -164,10 +164,10 @@ export function validateRMColumns(rawCols: string[]): { valid: boolean; missing:
 
 // SLA Z-scores for normal distribution approximation
 const SLA_Z: Record<number, number> = {
-  90: 1.28,
-  95: 1.65,
-  98: 2.05,
-  99: 2.33,
+  50: 0,
+  84: 1,
+  98: 2,
+  99.9: 3,
 };
 
 export function processRM(rawRows: RawRMRow[], rename: Record<string, string>): RMData[] {

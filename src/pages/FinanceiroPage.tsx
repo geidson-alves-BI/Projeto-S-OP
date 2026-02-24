@@ -31,7 +31,7 @@ export default function FinanceiroPage() {
 
   const [sortBySku, setSortBySku] = useState<"investimento" | "volume">("investimento");
   const [sortByRm, setSortByRm] = useState<"investimento" | "cobertura">("investimento");
-  const [slaLevel, setSlaLevel] = useState(95);
+  const [slaLevel, setSlaLevel] = useState(84);
 
   // SKU Investment: target stock value (using consumoDiario * diasAlvo as proxy)
   const skuInvestment = useMemo(() => {
