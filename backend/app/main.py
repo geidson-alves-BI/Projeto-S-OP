@@ -6,16 +6,26 @@ from .utils import to_dataframe, ensure_datetime
 from .sla import compute_sla
 from .abcxyz import compute_abcxyz
 from .forecast import forecast_naive
+from .routers import ai_router
 
 app = FastAPI(title="Control Tower Engine", version="0.1.0")
 
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # depois a gente restringe
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(ai_router)
+
 @app.get("/")
 def root():
     return {"message": "Control Tower Engine online. Use /docs"}

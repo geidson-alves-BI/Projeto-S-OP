@@ -1,73 +1,99 @@
-# Welcome to your Lovable project
+# pixel-perfect
 
-## Project info
+Guia rapido para rodar frontend + backend localmente no Windows.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Pre-requisitos
 
-## How can I edit this code?
+- Python 3.12+ com `py` ou `python` no PATH
+- Node.js 18+
+- npm
 
-There are several ways of editing your application.
+## Terminal 1: rodar backend (FastAPI)
 
-**Use Lovable**
+Na raiz do repositorio:
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```powershell
+cd c:\Projetos\pixel-perfect
+.\scripts\run_backend.ps1
 ```
 
-**Edit a file directly in GitHub**
+Esse script:
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+1. Cria `.venv` (se nao existir)
+2. Tenta ativar a `.venv`
+3. Instala dependencias de `backend/requirements.txt`
+4. Sobe a API em `http://127.0.0.1:8000` com reload
 
-**Use GitHub Codespaces**
+Forma manual equivalente (na raiz):
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```powershell
+.\.venv\Scripts\Activate.ps1
+uvicorn backend.app.main:app --reload --port 8000
+```
 
-## What technologies are used for this project?
+Ou sem ativar:
 
-This project is built with:
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8000
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Terminal 2: rodar frontend (Vite)
 
-## How can I deploy this project?
+Na raiz do repositorio:
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+```powershell
+cd c:\Projetos\pixel-perfect
+npm run dev:local
+```
 
-## Can I connect a custom domain to my Lovable project?
+Frontend esperado: `http://127.0.0.1:8081`  
+API esperada pelo frontend: `VITE_API_URL=http://127.0.0.1:8000`
 
-Yes, you can!
+## Como validar backend
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+Com backend em execucao:
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- `http://127.0.0.1:8000/docs`
+- `http://127.0.0.1:8000/openapi.json`
+
+Checks locais:
+
+```powershell
+.\scripts\check_backend.ps1
+.\scripts\check_backend.ps1 -SkipHttp
+```
+
+Opcional (smoke test `/ai/*`):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\smoke_test_ai.py
+```
+
+## AI Agent
+
+As instrucoes detalhadas e exemplos de payload para os endpoints `/ai/*` estao em:
+
+- [docs/AI_AGENT.md](docs/AI_AGENT.md)
+
+## CORS local permitido
+
+O backend esta configurado para aceitar:
+
+- `http://localhost:8081`
+- `http://127.0.0.1:8081`
+- `http://localhost:5173`
+- `http://127.0.0.1:5173`
+
+## Troubleshooting rapido
+
+- Erro ao ativar `Activate.ps1`:
+  - Rode `Set-ExecutionPolicy -Scope Process Bypass` e tente novamente.
+  - Ou execute sem ativar: `.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8000`.
+
+- Erro de `PYTHONPATH` / `No module named backend`:
+  - Rode os comandos a partir da raiz `c:\Projetos\pixel-perfect`.
+  - Use `backend.app.main:app` (nao `app.main:app`).
+
+- Erro `No module named fastapi` ou `uvicorn` nao reconhecido:
+  - Rode `.\scripts\run_backend.ps1` para recriar ambiente e instalar dependencias.
+  - Confirme com `.\scripts\check_backend.ps1` (valida imports e `GET /docs`).
