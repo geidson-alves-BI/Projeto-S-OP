@@ -17,6 +17,9 @@ backend/venv/
 .venv/
 __pycache__/
 *.pyc
+build/backend.exe
+build/backend-build/
+build/backend-dist/
 
 # Editor directories and files
 .vscode/*

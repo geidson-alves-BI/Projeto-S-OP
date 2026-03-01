@@ -1,13 +1,19 @@
 {
-  "name": "vite_react_shadcn_ts",
+  "name": "operion",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Operational Intelligence Platform",
+  "author": "Operion",
+  "main": "desktop/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "dev:local": "vite --host 127.0.0.1 --port 8081",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "desktop:start": "npm run build && npx --yes electron@32.2.0 .",
+    "desktop:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build_backend_exe.ps1",
+    "desktop:dist": "npm run build && npm run desktop:backend && npx --yes electron-builder@24.13.3 --win nsis",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
@@ -47,6 +53,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
+    "electron-updater": "^6.8.3",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.462.0",
@@ -87,5 +94,62 @@
     "typescript-eslint": "^8.38.0",
     "vite": "^5.4.19",
     "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "com.operion.app",
+    "productName": "Operion",
+    "artifactName": "Operion-Setup-${version}.exe",
+    "electronVersion": "32.2.0",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist/desktop"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/**/*",
+      "package.json",
+      "!dist/desktop/**"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "build/icon.ico"
+      },
+      {
+        "from": "build/backend.exe",
+        "to": "backend/backend.exe"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false,
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Operion",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "installerSidebar": "build/installerSidebar.png",
+      "installerHeader": "build/installerHeader.png",
+      "include": "build/installer.nsh",
+      "artifactName": "Operion-Setup-${version}.exe"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "geidson-alves-BI",
+        "repo": "Projeto-S-OP",
+        "releaseType": "release"
+      }
+    ]
   }
 }
