@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import Layout from "@/components/Layout";
 import { AppDataProvider } from "@/contexts/AppDataContext";
 import HomePage from "@/pages/HomePage";
@@ -14,9 +14,14 @@ import FinanceiroPage from "@/pages/FinanceiroPage";
 import RelatoriosPage from "@/pages/RelatoriosPage";
 import NotFound from "@/pages/NotFound";
 
+const RouterComponent =
+  typeof window !== "undefined" && window.location.protocol === "file:"
+    ? HashRouter
+    : BrowserRouter;
+
 export default function App() {
   return (
-    <BrowserRouter>
+    <RouterComponent>
       <AppDataProvider>
         <Routes>
           <Route path="/" element={<Layout />}>
@@ -36,6 +41,6 @@ export default function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </AppDataProvider>
-    </BrowserRouter>
+    </RouterComponent>
   );
 }
