@@ -1,8 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
 from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
+project_root = os.path.abspath(os.getcwd())
+entry_script = os.path.join(project_root, "backend", "run_prod.py")
 
 hiddenimports = (
     collect_submodules("uvicorn")
@@ -12,8 +16,8 @@ hiddenimports = (
 )
 
 a = Analysis(
-    ["backend/run_prod.py"],
-    pathex=["."],
+    [entry_script],
+    pathex=[project_root],
     binaries=[],
     datas=[],
     hiddenimports=hiddenimports,

@@ -30,11 +30,11 @@ else {
 }
 
 function Invoke-Python {
-    param([string[]]$Args)
+    param([string[]]$PythonArgs)
 
-    & $pythonCommand @pythonPrefix @Args
+    & $pythonCommand @pythonPrefix @PythonArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "Falha ao executar: $pythonCommand $($pythonPrefix -join ' ') $($Args -join ' ')"
+        throw "Falha ao executar: $pythonCommand $($pythonPrefix -join ' ') $($PythonArgs -join ' ')"
     }
 }
 
@@ -48,12 +48,12 @@ if (-not (Test-Path $specPath)) {
 }
 
 Write-Host "Instalando dependencias do backend..."
-Invoke-Python -Args @("-m", "pip", "install", "--upgrade", "pip")
-Invoke-Python -Args @("-m", "pip", "install", "-r", "backend/requirements.txt")
-Invoke-Python -Args @("-m", "pip", "install", "pyinstaller")
+Invoke-Python -PythonArgs @("-m", "pip", "install", "--upgrade", "pip")
+Invoke-Python -PythonArgs @("-m", "pip", "install", "-r", "backend/requirements.txt")
+Invoke-Python -PythonArgs @("-m", "pip", "install", "pyinstaller")
 
 Write-Host "Gerando backend.exe com PyInstaller..."
-Invoke-Python -Args @(
+Invoke-Python -PythonArgs @(
     "-m", "PyInstaller",
     $specPath,
     "--noconfirm",
