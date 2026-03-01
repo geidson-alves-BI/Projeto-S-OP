@@ -43,13 +43,71 @@ npm run desktop:dist
 
 2. Verifique os artefatos:
 
-- Instalador NSIS: `dist\desktop\Operion-Setup-0.0.0.exe`
+- Instalador NSIS: `dist\desktop\Operion-Setup-0.1.0.exe`
 - Aplicativo empacotado: `dist\desktop\win-unpacked\Operion.exe`
 
 3. Teste manual:
 
 - Execute o instalador e confirme nome/atalhos como `Operion`
 - Abra o app instalado e confirme o tray icon usando `build\icon.ico`
+- Abra o app sem internet e confirme que ele continua funcionando normalmente
+
+## Atualizacoes (Auto-Update)
+
+O desktop do Operion funciona 100% local no PC.  
+Sem internet, o app abre e roda normalmente.
+
+Quando houver internet, o desktop:
+
+1. Checa atualizacoes no GitHub Releases ao iniciar
+2. Se houver nova versao, mostra notificacao e status no tray (`Atualizacao pendente`)
+3. Faz download em background
+4. Quando concluir, muda para `Pronto para instalar ao reiniciar`
+
+Aplicacao da atualizacao:
+
+- Opcao 1: fechar e abrir o app novamente
+- Opcao 2: menu do tray -> `Reiniciar e atualizar agora`
+- Opcao adicional no tray: `Atualizar ao fechar` (ligado por padrao)
+
+Logs locais do desktop:
+
+- `%APPDATA%\Operion\logs\desktop.log`
+- Em alguns ambientes: `%APPDATA%\operion\logs\desktop.log`
+
+Troubleshooting de update:
+
+- Sem internet ou sem release publicada:
+  - O app continua abrindo normalmente
+  - O erro fica apenas no log local, sem bloquear o uso
+- Update nao aparece:
+  - Confirme que existe release no GitHub com tag (`v0.1.1`, por exemplo)
+  - Confirme que os assets da release incluem `.exe`, `.blockmap` e `latest.yml`
+
+## Como publicar uma nova versao (GitHub Releases)
+
+Fluxo recomendado:
+
+1. Atualize `package.json` para a nova versao (ex.: `0.1.1`)
+2. Gere lockfile atualizado (se necessario) e commit:
+   - `git add package.json package-lock.json`
+   - `git commit -m "chore: bump desktop version to 0.1.1"`
+3. Crie e envie a tag:
+
+```powershell
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+4. O workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) sera disparado automaticamente e publicara os assets no GitHub Release.
+
+Teste basico de update (simulado):
+
+1. Instale `0.1.0`
+2. Publique `0.1.1` (passos acima)
+3. Abra o app `0.1.0` com internet
+4. Verifique tray com `Atualizacao pendente`
+5. Use `Reiniciar e atualizar agora` (ou reinicie o app)
 
 ## Terminal 1: rodar backend (FastAPI)
 
