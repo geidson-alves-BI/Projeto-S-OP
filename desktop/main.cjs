@@ -20,6 +20,9 @@ const SLOGAN = "Operational Intelligence Platform";
 const DEFAULT_BACKEND_PORT = 8000;
 const BACKEND_START_TIMEOUT_SEC = 60;
 const BACKEND_POLL_INTERVAL_MS = 1000;
+const DEBUG_MODE = process.env.OPERION_DEBUG === "1";
+
+app.setName(PRODUCT_NAME);
 
 let mainWindow = null;
 let tray = null;
@@ -37,12 +40,16 @@ let updateStatusText = "Sem verificacao de atualizacao";
 let logsDir = "";
 let desktopLogPath = "";
 let backendLogPath = "";
+let rendererLogPath = "";
+let rendererFallbackShown = false;
 
 function initLogging() {
   logsDir = path.join(app.getPath("appData"), PRODUCT_NAME, "logs");
   fs.mkdirSync(logsDir, { recursive: true });
   desktopLogPath = path.join(logsDir, "desktop.log");
   backendLogPath = path.join(logsDir, "backend.log");
+  rendererLogPath = path.join(logsDir, "renderer.log");
+  appendLine(rendererLogPath, `[${new Date().toISOString()}] [info] Renderer log started`);
 }
 
 function appendLine(filePath, line) {
@@ -66,6 +73,16 @@ function logBackend(message) {
   if (backendLogPath) {
     appendLine(backendLogPath, line);
   }
+}
+
+function logRenderer(level, message, sourceId = "", lineNumber = 0) {
+  if (!rendererLogPath) {
+    return;
+  }
+
+  const safeSource = sourceId || "renderer";
+  const line = `[${new Date().toISOString()}] [${level}] ${safeSource}:${lineNumber} ${message}`;
+  appendLine(rendererLogPath, line);
 }
 
 function setBackendStatus(message) {
@@ -340,6 +357,96 @@ function showMainWindow() {
   mainWindow.focus();
 }
 
+function openLogsFolder() {
+  if (!logsDir) {
+    return;
+  }
+
+  shell.openPath(logsDir).catch((error) => {
+    logDesktop("warn", `Falha ao abrir pasta de logs: ${error.message}`);
+  });
+}
+
+function isFallbackPageUrl(url) {
+  if (!url) {
+    return false;
+  }
+
+  return url.includes("/desktop/fallback/error.html") || url.includes("\\desktop\\fallback\\error.html");
+}
+
+async function loadRendererFallback(reason, details) {
+  if (!mainWindow || mainWindow.isDestroyed() || rendererFallbackShown) {
+    return;
+  }
+
+  rendererFallbackShown = true;
+  const fallbackPath = path.join(__dirname, "fallback", "error.html");
+  const detailText = `${reason}${details ? ` | ${details}` : ""}`;
+
+  logDesktop("error", `Renderer fallback acionado: ${detailText}`);
+
+  try {
+    await mainWindow.loadFile(fallbackPath, {
+      query: {
+        reason,
+        details: details || "",
+        logsPath: logsDir,
+      },
+    });
+    mainWindow.setTitle(PRODUCT_NAME);
+    if (!mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  } catch (error) {
+    logDesktop("error", `Falha ao carregar fallback do renderer: ${error.message}`);
+  }
+}
+
+function attachRendererObservers() {
+  if (!mainWindow) {
+    return;
+  }
+
+  mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    logRenderer(level, message, sourceId, line);
+  });
+
+  mainWindow.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame || isFallbackPageUrl(validatedURL)) {
+        return;
+      }
+
+      const details = `code=${errorCode} desc=${errorDescription} url=${validatedURL}`;
+      loadRendererFallback("Operion nao conseguiu carregar a interface.", details);
+    },
+  );
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    const reason = details?.reason || "unknown";
+    const exitCode = details?.exitCode ?? "null";
+    loadRendererFallback(
+      "O processo de interface foi encerrado inesperadamente.",
+      `reason=${reason} exitCode=${exitCode}`,
+    );
+  });
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+
+    mainWindow.setTitle(PRODUCT_NAME);
+    logDesktop("info", `Renderer carregado: ${mainWindow.webContents.getURL()}`);
+  });
+}
+
+function resolveIndexHtmlPath() {
+  return path.join(app.getAppPath(), "dist", "index.html");
+}
+
 function createMainWindow() {
   const iconPath = resolveIconPath();
   const preloadPath = path.join(__dirname, "preload.cjs");
@@ -361,12 +468,24 @@ function createMainWindow() {
     },
   });
 
+  rendererFallbackShown = false;
+  attachRendererObservers();
   registerApiUrlRewrite(mainWindow.webContents.session);
 
-  const indexHtml = path.join(__dirname, "..", "dist", "index.html");
-  mainWindow.loadFile(indexHtml);
+  const indexHtml = resolveIndexHtmlPath();
+  mainWindow.loadFile(indexHtml).catch((error) => {
+    loadRendererFallback("Operion nao conseguiu carregar a interface.", error.message);
+  });
 
   mainWindow.once("ready-to-show", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+
+    if (DEBUG_MODE) {
+      mainWindow.webContents.openDevTools({ mode: "detach" });
+    }
+
     mainWindow.show();
   });
 
@@ -509,7 +628,7 @@ function buildTrayMenuTemplate() {
     },
     {
       label: "Abrir pasta de logs",
-      click: () => shell.openPath(logsDir),
+      click: () => openLogsFolder(),
     },
     { type: "separator" },
     {
@@ -550,6 +669,9 @@ function createTray() {
 app.whenReady().then(async () => {
   initLogging();
   logDesktop("info", "Operion desktop iniciado");
+  if (DEBUG_MODE) {
+    logDesktop("info", "OPERION_DEBUG=1 ativo: DevTools sera aberto automaticamente.");
+  }
 
   createTray();
   setBackendStatus("Backend inicializando...");
