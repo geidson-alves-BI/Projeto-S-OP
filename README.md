@@ -32,6 +32,25 @@ Branding aplicado no desktop/installer:
 - Sidebar do instalador: `build\installerSidebar.png`
 - Header do instalador: `build\installerHeader.png`
 
+### Como testar (desktop)
+
+1. Gere o instalador:
+
+```powershell
+cd c:\Projetos\pixel-perfect
+npm run desktop:dist
+```
+
+2. Verifique os artefatos:
+
+- Instalador NSIS: `dist\desktop\Operion-Setup-0.0.0.exe`
+- Aplicativo empacotado: `dist\desktop\win-unpacked\Operion.exe`
+
+3. Teste manual:
+
+- Execute o instalador e confirme nome/atalhos como `Operion`
+- Abra o app instalado e confirme o tray icon usando `build\icon.ico`
+
 ## Terminal 1: rodar backend (FastAPI)
 
 Na raiz do repositorio:
