@@ -52,6 +52,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
+    "electron-updater": "^6.8.3",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.462.0",
@@ -115,6 +116,8 @@
       }
     ],
     "win": {
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false,
       "icon": "build/icon.ico",
       "target": [
         "nsis"
@@ -134,6 +137,14 @@
       "installerHeader": "build/installerHeader.png",
       "include": "build/installer.nsh",
       "artifactName": "Operion-Setup-${version}.exe"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "geidson-alves-BI",
+        "repo": "Projeto-S-OP",
+        "releaseType": "release"
+      }
+    ]
   }
 }
