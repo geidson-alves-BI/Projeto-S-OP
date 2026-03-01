@@ -1,12 +1,36 @@
-# pixel-perfect
+# Operion
 
-Guia rapido para rodar frontend + backend localmente no Windows.
+Operion - Operational Intelligence Platform.
 
 ## Pre-requisitos
 
 - Python 3.12+ com `py` ou `python` no PATH
 - Node.js 18+
 - npm
+- Windows PowerShell (para scripts `.ps1`)
+- Git (opcional)
+
+## Desktop Windows (NSIS)
+
+Para gerar o instalador do app desktop:
+
+```powershell
+cd c:\Projetos\pixel-perfect
+npm run desktop:dist
+```
+
+Saida esperada:
+
+- Instalador: `dist\desktop\Operion-Setup-<versao>.exe`
+- App empacotado: `dist\desktop\win-unpacked\`
+
+Branding aplicado no desktop/installer:
+
+- Nome do produto: `Operion`
+- AppId: `com.operion.app`
+- Icone app/installer/tray: `build\icon.ico`
+- Sidebar do instalador: `build\installerSidebar.png`
+- Header do instalador: `build\installerHeader.png`
 
 ## Terminal 1: rodar backend (FastAPI)
 
