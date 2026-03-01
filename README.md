@@ -63,22 +63,50 @@ Alternativa persistente para producao local:
 1. Crie `./.env.production.local`
 2. Adicione `VITE_API_URL=http://127.0.0.1:8000`
 
-## Rodar app completo (production-like)
+## Rodar com 1 clique (production-like local)
 
-Terminal 1 (backend, sem reload, 2 workers):
+Use o launcher unico para subir backend + frontend sem alterar a logica do app.
+
+Opcao 1 (mais simples):
+
+- De duplo clique em `scripts\run_app_prod.cmd`
+
+Opcao 2 (PowerShell):
 
 ```powershell
 cd c:\Projetos\pixel-perfect
-.\scripts\run_backend_prod.ps1
+.\scripts\run_app_prod.ps1
 ```
 
-Terminal 2 (build + serve de `dist/` em 8081):
+O launcher faz:
 
-```powershell
-cd c:\Projetos\pixel-perfect
-$env:VITE_API_URL="http://127.0.0.1:8000"
-.\scripts\run_frontend_prod.ps1
-```
+1. Sobe backend em `http://127.0.0.1:8000` (sem reload)
+2. Aguarda backend ficar pronto
+3. Define `VITE_API_URL=http://127.0.0.1:8000`
+4. Builda o frontend e sobe `dist/` em `http://127.0.0.1:8081`
+5. Abre o navegador automaticamente
+6. Mostra mensagem clara: `AGORA ABRA: http://127.0.0.1:8081`
+
+Pre-requisitos para 1 clique:
+
+- Python 3 com `py` ou `python` no PATH
+- Node.js com `npm`
+- Windows PowerShell
+- Git (opcional, apenas para clonar/atualizar repo)
+
+Como parar:
+
+- Pressione `Ctrl+C` na janela do launcher para encerrar backend e frontend
+- Ou feche a janela do launcher
+
+Troubleshooting do 1 clique:
+
+- Porta `8081` ocupada:
+  - Rode `.\scripts\run_app_prod.ps1 -FrontendPort 8082`
+  - Acesse `http://127.0.0.1:8082`
+- Script bloqueado por ExecutionPolicy:
+  - Use `scripts\run_app_prod.cmd` (duplo clique), ou
+  - Rode `Set-ExecutionPolicy -Scope Process Bypass` antes do `.ps1`
 
 ## Como validar backend
 
