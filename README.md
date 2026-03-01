@@ -10,21 +10,49 @@ Operion - Operational Intelligence Platform.
 - Windows PowerShell (para scripts `.ps1`)
 - Git (opcional)
 
+## Operion Desktop (standalone)
+
+No desktop do Operion, o backend FastAPI inicia automaticamente junto com o app.  
+O usuario instala e abre o Operion sem precisar terminal.
+
+Comportamento esperado:
+
+1. Ao abrir o app, backend sobe em `127.0.0.1` (porta padrao `8000`)
+2. Se `8000` estiver ocupada, o app tenta proxima porta livre e registra no log
+3. Ao fechar o app, o processo do backend embutido eh encerrado
+4. O app continua funcional offline no PC
+
+Logs locais:
+
+- `%APPDATA%\Operion\logs\desktop.log`
+- `%APPDATA%\Operion\logs\backend.log`
+
+Troubleshooting rapido (desktop standalone):
+
+- Porta `8000` em uso:
+  - O app tenta outra porta automaticamente
+  - Consulte `%APPDATA%\Operion\logs\desktop.log` para ver a porta escolhida
+- Firewall/antivirus:
+  - Permita execucao do `Operion.exe` e do backend embutido
+  - Se bloquear subprocesso local, o frontend pode abrir sem conseguir acessar API
+
 ## Desktop Windows (NSIS)
 
-Para gerar o instalador do app desktop:
+Para gerar o instalador desktop:
 
 ```powershell
-cd c:\Projetos\pixel-perfect
+cd C:\Projetos\Operion
 npm run desktop:dist
 ```
 
 Saida esperada:
 
 - Instalador: `dist\desktop\Operion-Setup-<versao>.exe`
-- App empacotado: `dist\desktop\win-unpacked\`
+- Blockmap: `dist\desktop\Operion-Setup-<versao>.exe.blockmap`
+- Metadata update: `dist\desktop\latest.yml`
+- App empacotado: `dist\desktop\win-unpacked\Operion.exe`
 
-Branding aplicado no desktop/installer:
+Branding aplicado:
 
 - Nome do produto: `Operion`
 - AppId: `com.operion.app`
@@ -32,25 +60,40 @@ Branding aplicado no desktop/installer:
 - Sidebar do instalador: `build\installerSidebar.png`
 - Header do instalador: `build\installerHeader.png`
 
-### Como testar (desktop)
-
-1. Gere o instalador:
+### Como testar (dev)
 
 ```powershell
-cd c:\Projetos\pixel-perfect
+cd C:\Projetos\Operion
+npm run desktop:backend
+npm run desktop:start
+```
+
+Checklist:
+
+1. App abre sem terminal adicional
+2. Backend responde em `http://127.0.0.1:8000/health` (ou porta alternativa registrada no log)
+3. `http://127.0.0.1:8000/docs` abre no browser
+4. Ao fechar o app, processo backend encerra
+
+### Como testar (installer)
+
+1. Gere instalador:
+
+```powershell
+cd C:\Projetos\Operion
 npm run desktop:dist
 ```
 
-2. Verifique os artefatos:
+2. Instale e abra o app:
 
-- Instalador NSIS: `dist\desktop\Operion-Setup-0.1.0.exe`
-- Aplicativo empacotado: `dist\desktop\win-unpacked\Operion.exe`
+- `dist\desktop\Operion-Setup-0.1.0.exe`
 
-3. Teste manual:
+3. Valide:
 
-- Execute o instalador e confirme nome/atalhos como `Operion`
-- Abra o app instalado e confirme o tray icon usando `build\icon.ico`
-- Abra o app sem internet e confirme que ele continua funcionando normalmente
+- Operion abre sem terminal
+- Backend sobe automaticamente
+- UI chama API normalmente
+- Fechar app encerra backend
 
 ## Atualizacoes (Auto-Update)
 
@@ -114,7 +157,7 @@ Teste basico de update (simulado):
 Na raiz do repositorio:
 
 ```powershell
-cd c:\Projetos\pixel-perfect
+cd C:\Projetos\Operion
 .\scripts\run_backend.ps1
 ```
 
@@ -143,7 +186,7 @@ Ou sem ativar:
 Na raiz do repositorio:
 
 ```powershell
-cd c:\Projetos\pixel-perfect
+cd C:\Projetos\Operion
 npm run dev:local
 ```
 
@@ -175,7 +218,7 @@ Opcao 1 (mais simples):
 Opcao 2 (PowerShell):
 
 ```powershell
-cd c:\Projetos\pixel-perfect
+cd C:\Projetos\Operion
 .\scripts\run_app_prod.ps1
 ```
 
@@ -258,7 +301,7 @@ O backend esta configurado para aceitar:
   - Ou execute sem ativar: `.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8000`.
 
 - Erro de `PYTHONPATH` / `No module named backend`:
-  - Rode os comandos a partir da raiz `c:\Projetos\pixel-perfect`.
+  - Rode os comandos a partir da raiz `C:\Projetos\Operion`.
   - Use `backend.app.main:app` (nao `app.main:app`).
 
 - Erro `No module named fastapi` ou `uvicorn` nao reconhecido:
