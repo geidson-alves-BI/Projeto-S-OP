@@ -49,6 +49,37 @@ npm run dev:local
 Frontend esperado: `http://127.0.0.1:8081`  
 API esperada pelo frontend: `VITE_API_URL=http://127.0.0.1:8000`
 
+## Frontend e API em modo producao local
+
+O frontend ja usa `VITE_API_URL` em [`src/lib/api.ts`](src/lib/api.ts).  
+Para build de producao local apontando para o backend local, defina:
+
+```powershell
+$env:VITE_API_URL="http://127.0.0.1:8000"
+```
+
+Alternativa persistente para producao local:
+
+1. Crie `./.env.production.local`
+2. Adicione `VITE_API_URL=http://127.0.0.1:8000`
+
+## Rodar app completo (production-like)
+
+Terminal 1 (backend, sem reload, 2 workers):
+
+```powershell
+cd c:\Projetos\pixel-perfect
+.\scripts\run_backend_prod.ps1
+```
+
+Terminal 2 (build + serve de `dist/` em 8081):
+
+```powershell
+cd c:\Projetos\pixel-perfect
+$env:VITE_API_URL="http://127.0.0.1:8000"
+.\scripts\run_frontend_prod.ps1
+```
+
 ## Como validar backend
 
 Com backend em execucao:
@@ -68,6 +99,13 @@ Opcional (smoke test `/ai/*`):
 ```powershell
 .\.venv\Scripts\python.exe scripts\smoke_test_ai.py
 ```
+
+Validacao do app completo em producao local:
+
+1. Acesse `http://127.0.0.1:8081`
+2. Confirme backend em `http://127.0.0.1:8000/docs`
+3. Teste `http://127.0.0.1:8000/openapi.json`
+4. Rode `.\.venv\Scripts\python.exe scripts\smoke_test_ai.py` e confirme status 200 nos endpoints `/ai/*`
 
 ## AI Agent
 
