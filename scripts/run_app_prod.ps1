@@ -116,6 +116,47 @@ function Stop-ProcessTree {
     & taskkill /PID $Process.Id /T /F | Out-Null
 }
 
+function Get-ListeningPids {
+    param([int]$Port)
+
+    $portPids = @()
+    try {
+        $connections = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction Stop
+        if ($connections) {
+            $portPids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
+        }
+    }
+    catch {
+        $netstatLines = netstat -ano | findstr ":$Port"
+        foreach ($line in $netstatLines) {
+            if ($line -notmatch "LISTENING") {
+                continue
+            }
+
+            $parts = ($line.Trim() -split "\s+")
+            if ($parts.Count -gt 0) {
+                $portPids += $parts[-1]
+            }
+        }
+
+        $portPids = $portPids | Select-Object -Unique
+    }
+
+    return @($portPids)
+}
+
+function Assert-PortAvailable {
+    param(
+        [int]$Port,
+        [string]$PortName
+    )
+
+    $portPids = @(Get-ListeningPids -Port $Port)
+    if ($portPids.Count -gt 0) {
+        throw "Porta $PortName ($Port) ja esta em uso pelo(s) PID(s): $($portPids -join ', '). Libere a porta ou use outro valor de parametro."
+    }
+}
+
 function New-FrontendCommand {
     param(
         [string]$RepoRoot,
@@ -159,6 +200,10 @@ try {
     if (-not (Test-Path $frontendScript)) {
         throw "Arquivo nao encontrado: $frontendScript"
     }
+
+    Write-Step "Validando portas livres (backend: $BackendPort, frontend: $FrontendPort)"
+    Assert-PortAvailable -Port $BackendPort -PortName "backend"
+    Assert-PortAvailable -Port $FrontendPort -PortName "frontend"
 
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $logDir = Join-Path $env:TEMP "pixel-perfect-launcher"
