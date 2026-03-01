@@ -12,7 +12,8 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "desktop:start": "npm run build && npx --yes electron@32.2.0 .",
-    "desktop:dist": "npm run build && npx --yes electron-builder@24.13.3 --win nsis",
+    "desktop:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build_backend_exe.ps1",
+    "desktop:dist": "npm run build && npm run desktop:backend && npx --yes electron-builder@24.13.3 --win nsis",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
@@ -113,6 +114,10 @@
       {
         "from": "build/icon.ico",
         "to": "build/icon.ico"
+      },
+      {
+        "from": "build/backend.exe",
+        "to": "backend/backend.exe"
       }
     ],
     "win": {
