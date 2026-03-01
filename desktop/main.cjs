@@ -28,6 +28,7 @@ let isQuitting = false;
 let backendProcess = null;
 let backendPort = DEFAULT_BACKEND_PORT;
 let backendStatusText = "Backend nao iniciado";
+let apiRewriteRegistered = false;
 
 let updateDownloaded = false;
 let installUpdateOnQuit = true;
@@ -79,6 +80,29 @@ function setUpdateStatus(message) {
 
 function getApiUrl() {
   return `http://127.0.0.1:${backendPort}`;
+}
+
+function registerApiUrlRewrite(session) {
+  if (apiRewriteRegistered || backendPort === DEFAULT_BACKEND_PORT) {
+    return;
+  }
+
+  const filter = {
+    urls: ["http://127.0.0.1:8000/*", "http://localhost:8000/*"],
+  };
+
+  session.webRequest.onBeforeRequest(filter, (details, callback) => {
+    const original = new URL(details.url);
+    original.hostname = "127.0.0.1";
+    original.port = String(backendPort);
+    callback({ redirectURL: original.toString() });
+  });
+
+  apiRewriteRegistered = true;
+  logDesktop(
+    "info",
+    `Reescrita de API ativa: http://127.0.0.1:8000 -> ${getApiUrl()}`,
+  );
 }
 
 function resolveIconPath() {
@@ -336,6 +360,8 @@ function createMainWindow() {
       sandbox: false,
     },
   });
+
+  registerApiUrlRewrite(mainWindow.webContents.session);
 
   const indexHtml = path.join(__dirname, "..", "dist", "index.html");
   mainWindow.loadFile(indexHtml);
