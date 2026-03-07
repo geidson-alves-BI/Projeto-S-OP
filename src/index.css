@@ -1,8 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 @layer base {
   :root {
@@ -211,14 +211,20 @@
 
   /* Feedback alerts */
   .alert-success {
-    @apply flex items-start gap-3 bg-success/8 border border-success/20 rounded-xl p-4;
+    @apply flex items-start gap-3 border rounded-xl p-4;
+    background-color: hsl(var(--success) / 0.08);
+    border-color: hsl(var(--success) / 0.2);
   }
 
   .alert-error {
-    @apply flex items-start gap-3 bg-destructive/8 border border-destructive/20 rounded-xl p-4;
+    @apply flex items-start gap-3 border rounded-xl p-4;
+    background-color: hsl(var(--destructive) / 0.08);
+    border-color: hsl(var(--destructive) / 0.2);
   }
 
   .alert-warning {
-    @apply flex items-start gap-3 bg-warning/8 border border-warning/25 rounded-xl p-4;
+    @apply flex items-start gap-3 border rounded-xl p-4;
+    background-color: hsl(var(--warning) / 0.08);
+    border-color: hsl(var(--warning) / 0.25);
   }
 }
