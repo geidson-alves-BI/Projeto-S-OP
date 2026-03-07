@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { BarChart3, Grid3X3, ListChecks, Package, Users } from "lucide-react";
+import PageTransition from "@/components/PageTransition";
 import MetricCard from "@/components/MetricCard";
 import MultiSelect from "@/components/MultiSelect";
 import { ABCBadge, StratBadge } from "@/components/ABCBadge";
@@ -51,7 +52,7 @@ export default function AbcXyzPage() {
   if (!state) return null;
 
   return (
-    <div className="p-6">
+    <PageTransition className="p-6">
       <Tabs defaultValue="abc-exec" className="w-full">
         <TabsList className="bg-secondary border border-border mb-4 h-10 flex-wrap">
           <TabsTrigger value="abc-exec" className="font-mono text-xs gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
@@ -223,6 +224,6 @@ export default function AbcXyzPage() {
           </TabsContent>
         )}
       </Tabs>
-    </div>
+    </PageTransition>
   );
 }
