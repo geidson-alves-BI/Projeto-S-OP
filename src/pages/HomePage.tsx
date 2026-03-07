@@ -33,10 +33,17 @@ const IMPACT_STYLE: Record<AIInterpretResponse["actions"][number]["impact"], str
 
 type UpdaterStatusSnapshot = {
   phase?: string;
+  status?: string;
   message?: string;
   percent?: number;
+  progressPercent?: number;
   version?: string | null;
+  currentVersion?: string | null;
   availableVersion?: string | null;
+  installReady?: boolean;
+  willInstallOnQuit?: boolean;
+  lastError?: string | null;
+  installedVersion?: string | null;
   installedMessage?: string | null;
 };
 
@@ -107,9 +114,17 @@ export default function HomePage() {
   const [appVersion, setAppVersion] = useState<string>("n/a");
   const [updaterSnapshot, setUpdaterSnapshot] = useState<UpdaterStatusSnapshot>({
     phase: "idle",
+    status: "idle",
     message: "Sem verificacao de atualizacao",
     percent: 0,
+    progressPercent: 0,
     version: null,
+    currentVersion: null,
+    availableVersion: null,
+    installReady: false,
+    willInstallOnQuit: true,
+    lastError: null,
+    installedVersion: null,
     installedMessage: null,
   });
   const [diagnosticStatus, setDiagnosticStatus] = useState<string | null>(null);
@@ -146,9 +161,17 @@ export default function HomePage() {
     if (!updater) {
       setUpdaterSnapshot({
         phase: "disabled",
+        status: "disabled",
         message: "Updater indisponivel no ambiente atual",
         percent: 0,
+        progressPercent: 0,
         version: null,
+        currentVersion: null,
+        availableVersion: null,
+        installReady: false,
+        willInstallOnQuit: true,
+        lastError: null,
+        installedVersion: null,
         installedMessage: null,
       });
       return () => {
@@ -163,15 +186,26 @@ export default function HomePage() {
       .then((status: UpdaterStatusSnapshot) => {
         if (active) {
           setUpdaterSnapshot(status);
+          if (status.currentVersion) {
+            setAppVersion(status.currentVersion);
+          }
         }
       })
       .catch(error => {
         if (active) {
           setUpdaterSnapshot({
             phase: "error",
+            status: "error",
             message: error instanceof Error ? error.message : String(error),
             percent: 0,
+            progressPercent: 0,
             version: null,
+            currentVersion: null,
+            availableVersion: null,
+            installReady: false,
+            willInstallOnQuit: true,
+            lastError: error instanceof Error ? error.message : String(error),
+            installedVersion: null,
             installedMessage: null,
           });
         }
@@ -180,6 +214,9 @@ export default function HomePage() {
     unsubscribe = updater.onStatus((status: UpdaterStatusSnapshot) => {
       if (active) {
         setUpdaterSnapshot(status);
+        if (status.currentVersion) {
+          setAppVersion(status.currentVersion);
+        }
       }
     });
 
@@ -302,7 +339,30 @@ export default function HomePage() {
     }
   };
 
-  const updaterProgress = Math.max(0, Math.min(100, Math.round(updaterSnapshot.percent || 0)));
+  const handleCopyUpdaterDiagnostic = async () => {
+    const updater = window.__OPERION_UPDATER__;
+    if (!updater?.copyDiagnostic) {
+      setDiagnosticStatus(null);
+      setDiagnosticError("Diagnostico do updater disponivel apenas no app desktop.");
+      return;
+    }
+
+    try {
+      setDiagnosticError(null);
+      const result = await updater.copyDiagnostic();
+      setDiagnosticStatus(result.message);
+    } catch (error) {
+      setDiagnosticStatus(null);
+      setDiagnosticError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const updaterProgress = Math.max(
+    0,
+    Math.min(100, Math.round(updaterSnapshot.progressPercent ?? updaterSnapshot.percent ?? 0)),
+  );
+  const currentInstalledVersion = updaterSnapshot.currentVersion ?? appVersion;
+  const availableUpdaterVersion = updaterSnapshot.availableVersion ?? updaterSnapshot.version ?? "n/a";
 
   return (
     <div className="p-6 space-y-6">
@@ -343,43 +403,70 @@ export default function HomePage() {
       <div className="metric-card space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-bold font-mono text-foreground">Diagnostico</h3>
-          <Button
-            variant="secondary"
-            className="font-mono text-sm"
-            onClick={handleOpenLogs}
-            disabled={openLogsBusy || !desktopBridge?.openLogs}
-          >
-            {openLogsBusy ? "Abrindo..." : "Abrir logs"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              className="font-mono text-sm"
+              onClick={handleCopyUpdaterDiagnostic}
+              disabled={!window.__OPERION_UPDATER__?.copyDiagnostic}
+            >
+              Copiar diagnostico do updater
+            </Button>
+            <Button
+              variant="secondary"
+              className="font-mono text-sm"
+              onClick={handleOpenLogs}
+              disabled={openLogsBusy || !desktopBridge?.openLogs}
+            >
+              {openLogsBusy ? "Abrindo..." : "Abrir logs"}
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-2 text-xs font-mono">
           <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Versao do app:</span> {appVersion}
+            <span className="text-muted-foreground">Versao atual instalada:</span> {currentInstalledVersion}
           </div>
           <div className="rounded border border-border bg-muted/20 px-3 py-2 break-all">
             <span className="text-muted-foreground">Backend URL:</span> {API_URL}
           </div>
           <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Ultimo status do updater:</span> {updaterSnapshot.message || "Sem status"}
+            <span className="text-muted-foreground">Status atual do updater:</span> {updaterSnapshot.message || "Sem status"}
           </div>
           <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Ultima versao encontrada:</span> {updaterSnapshot.version ?? "n/a"}
+            <span className="text-muted-foreground">Ultima versao encontrada:</span> {availableUpdaterVersion}
           </div>
           <div className="rounded border border-border bg-muted/20 px-3 py-2">
             <span className="text-muted-foreground">Progresso do download:</span> {updaterProgress}%
           </div>
+          <div className="rounded border border-border bg-muted/20 px-3 py-2">
+            <span className="text-muted-foreground">Instalacao ao fechar:</span>{" "}
+            {updaterSnapshot.willInstallOnQuit ? "Ativa" : "Inativa"}
+          </div>
         </div>
 
-        {(updaterSnapshot.phase === "downloading" || updaterSnapshot.phase === "downloaded") && (
+        {(updaterSnapshot.phase === "downloading" || updaterSnapshot.installReady) && (
           <div className="rounded border border-border bg-muted/20 px-3 py-3">
             <div className="h-2 overflow-hidden rounded-full bg-border/60">
               <div
                 className={`h-full rounded-full transition-all ${
-                  updaterSnapshot.phase === "downloaded" ? "bg-success" : "bg-primary"
+                  updaterSnapshot.installReady ? "bg-success" : "bg-primary"
                 }`}
                 style={{ width: `${updaterProgress}%` }}
               />
+            </div>
+          </div>
+        )}
+
+        {updaterSnapshot.installReady && (
+          <div className="rounded border border-success/40 bg-success/10 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-mono font-semibold text-success">
+                Atualizacao baixada. Feche o app para instalar.
+              </p>
+              <span className="rounded border border-success/40 bg-success/10 px-2 py-1 text-[10px] font-mono uppercase text-success">
+                Pronto
+              </span>
             </div>
           </div>
         )}
@@ -390,6 +477,9 @@ export default function HomePage() {
           </div>
         )}
 
+        {updaterSnapshot.lastError && (
+          <p className="text-xs font-mono text-destructive">{updaterSnapshot.lastError}</p>
+        )}
         {diagnosticStatus && <p className="text-xs font-mono text-muted-foreground">{diagnosticStatus}</p>}
         {diagnosticError && <p className="text-xs font-mono text-destructive">{diagnosticError}</p>}
       </div>

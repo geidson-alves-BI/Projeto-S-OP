@@ -8,6 +8,8 @@ const {
   dialog,
   nativeImage,
   shell,
+  clipboard,
+  autoUpdater: nativeAutoUpdater,
 } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { execFile, spawn } = require("child_process");
@@ -38,18 +40,28 @@ let installUpdateOnQuit = true;
 let lastDownloadProgressLogged = -1;
 let applyingUpdateOnQuitLogged = false;
 
-let updateState = {
-  available: false,
-  downloading: false,
-  downloaded: false,
-  percent: 0,
-  version: null,
-  phase: "idle",
-  message: "Sem verificacao de atualizacao",
-  lastError: null,
-  installedVersion: null,
-  installedMessage: null,
-};
+const DEFAULT_UPDATE_MESSAGE = "Sem verificacao de atualizacao";
+const RELEVANT_UPDATER_LOG_PATTERN =
+  /(app version on startup|app relaunched version|checking-for-update|update-available|download-progress|update-downloaded|will-install-on-quit|before-quit-for-update|quitAndInstall called|update-not-available|erro no auto-update|checando atualizacoes|atualizacao instalada|reopened-old-version)/i;
+
+function createInitialUpdateState() {
+  return {
+    currentVersion: app.getVersion(),
+    availableVersion: null,
+    downloading: false,
+    downloaded: false,
+    progressPercent: 0,
+    installReady: false,
+    available: false,
+    phase: "idle",
+    message: DEFAULT_UPDATE_MESSAGE,
+    lastError: null,
+    installedVersion: null,
+    installedMessage: null,
+  };
+}
+
+let updateState = createInitialUpdateState();
 
 let logsDir = "";
 let desktopLogPath = "";
@@ -57,11 +69,22 @@ let backendLogPath = "";
 let rendererLogPath = "";
 let rendererFallbackShown = false;
 let updaterStatePath = "";
-let persistedUpdaterState = {
+const DEFAULT_PERSISTED_UPDATER_STATE = {
   pendingInstallVersion: null,
   previousAppVersion: null,
   lastInstalledVersion: null,
+  lastDetectedVersion: null,
+  currentVersion: null,
+  availableVersion: null,
+  downloading: false,
+  downloaded: false,
+  progressPercent: 0,
+  installReady: false,
+  lastPhase: "idle",
+  lastMessage: DEFAULT_UPDATE_MESSAGE,
+  lastError: null,
 };
+let persistedUpdaterState = { ...DEFAULT_PERSISTED_UPDATER_STATE };
 
 function initLogging() {
   logsDir = path.join(app.getPath("userData"), "logs");
@@ -111,6 +134,10 @@ function setBackendStatus(message) {
   refreshTrayMenu();
 }
 
+function syncCurrentVersionState() {
+  updateState.currentVersion = app.getVersion();
+}
+
 function loadPersistedUpdaterState() {
   if (!updaterStatePath || !fs.existsSync(updaterStatePath)) {
     return;
@@ -120,9 +147,8 @@ function loadPersistedUpdaterState() {
     const raw = fs.readFileSync(updaterStatePath, "utf8");
     const parsed = JSON.parse(raw);
     persistedUpdaterState = {
-      pendingInstallVersion: parsed?.pendingInstallVersion || null,
-      previousAppVersion: parsed?.previousAppVersion || null,
-      lastInstalledVersion: parsed?.lastInstalledVersion || null,
+      ...DEFAULT_PERSISTED_UPDATER_STATE,
+      ...parsed,
     };
   } catch (error) {
     logDesktop("warn", `Falha ao ler updater-state.json: ${error.message}`);
@@ -141,56 +167,179 @@ function savePersistedUpdaterState() {
   }
 }
 
+function persistUpdateSnapshot() {
+  syncCurrentVersionState();
+  persistedUpdaterState.currentVersion = updateState.currentVersion;
+  persistedUpdaterState.availableVersion = updateState.availableVersion;
+  persistedUpdaterState.lastDetectedVersion =
+    updateState.availableVersion || persistedUpdaterState.lastDetectedVersion;
+  persistedUpdaterState.downloading = updateState.downloading;
+  persistedUpdaterState.downloaded = updateState.downloaded;
+  persistedUpdaterState.progressPercent = updateState.progressPercent;
+  persistedUpdaterState.installReady = updateState.installReady;
+  persistedUpdaterState.lastPhase = updateState.phase;
+  persistedUpdaterState.lastMessage = updateState.message;
+  persistedUpdaterState.lastError = updateState.lastError;
+  savePersistedUpdaterState();
+}
+
 function rememberDownloadedVersion(version) {
-  persistedUpdaterState.pendingInstallVersion = version || null;
+  const normalizedVersion = version || updateState.availableVersion || null;
+  persistedUpdaterState.pendingInstallVersion = normalizedVersion;
   persistedUpdaterState.previousAppVersion = app.getVersion();
+  persistedUpdaterState.availableVersion = normalizedVersion;
+  persistedUpdaterState.lastDetectedVersion = normalizedVersion;
+  persistedUpdaterState.downloaded = true;
+  persistedUpdaterState.installReady = true;
+  persistedUpdaterState.progressPercent = 100;
   savePersistedUpdaterState();
 }
 
 function detectInstalledUpdateOnStartup() {
-  const currentVersion = app.getVersion();
-  const { pendingInstallVersion, previousAppVersion } = persistedUpdaterState;
+  syncCurrentVersionState();
+  const currentVersion = updateState.currentVersion;
+  const { pendingInstallVersion, previousAppVersion, lastDetectedVersion } = persistedUpdaterState;
+  const expectedVersion = pendingInstallVersion || lastDetectedVersion;
+
+  if (previousAppVersion) {
+    logDesktop("info", `app relaunched version=${currentVersion}`);
+  }
 
   if (
-    pendingInstallVersion &&
+    expectedVersion &&
     previousAppVersion &&
-    pendingInstallVersion === currentVersion &&
+    expectedVersion === currentVersion &&
     previousAppVersion !== currentVersion
   ) {
-    updateState.installedVersion = currentVersion;
-    updateState.installedMessage = `Operion atualizado com sucesso para a versao ${currentVersion}`;
-    updateState.version = currentVersion;
-    updateState.phase = "installed";
-    updateState.message = "Atualizacao instalada";
+    updateState = {
+      ...updateState,
+      currentVersion,
+      availableVersion: currentVersion,
+      available: false,
+      downloading: false,
+      downloaded: false,
+      progressPercent: 100,
+      installReady: false,
+      phase: "installed",
+      message: "Atualizacao instalada",
+      lastError: null,
+      installedVersion: currentVersion,
+      installedMessage: `Atualizado com sucesso para versao ${currentVersion}`,
+    };
     persistedUpdaterState.lastInstalledVersion = currentVersion;
     persistedUpdaterState.pendingInstallVersion = null;
     persistedUpdaterState.previousAppVersion = null;
-    savePersistedUpdaterState();
+    persistedUpdaterState.availableVersion = currentVersion;
+    persistedUpdaterState.lastDetectedVersion = currentVersion;
+    persistUpdateSnapshot();
     logDesktop("info", `Update aplicado com sucesso na inicializacao. version=${currentVersion}`);
+    return;
+  }
+
+  if (
+    expectedVersion &&
+    previousAppVersion &&
+    previousAppVersion === currentVersion &&
+    expectedVersion !== currentVersion
+  ) {
+    updateState = {
+      ...updateState,
+      currentVersion,
+      availableVersion: expectedVersion,
+      available: true,
+      downloading: false,
+      downloaded: Boolean(persistedUpdaterState.downloaded),
+      progressPercent: persistedUpdaterState.progressPercent || 0,
+      installReady: Boolean(persistedUpdaterState.installReady),
+      phase: persistedUpdaterState.installReady ? "pending-install" : persistedUpdaterState.lastPhase,
+      message: persistedUpdaterState.installReady
+        ? "Atualizacao baixada anteriormente. Feche o app para instalar."
+        : persistedUpdaterState.lastMessage,
+      lastError: persistedUpdaterState.lastError,
+      installedVersion: persistedUpdaterState.lastInstalledVersion,
+      installedMessage: null,
+    };
+    persistUpdateSnapshot();
+    logDesktop("warn", `reopened-old-version current=${currentVersion} expected=${expectedVersion}`);
+    return;
+  }
+
+  persistUpdateSnapshot();
+}
+
+function getRecentUpdaterLogLines(limit = 25) {
+  if (!desktopLogPath || !fs.existsSync(desktopLogPath)) {
+    return [];
+  }
+
+  try {
+    const lines = fs.readFileSync(desktopLogPath, "utf8").split(/\r?\n/).filter(Boolean);
+    return lines.filter((line) => RELEVANT_UPDATER_LOG_PATTERN.test(line)).slice(-limit);
+  } catch (error) {
+    logDesktop("warn", `Falha ao ler desktop.log para diagnostico: ${error.message}`);
+    return [];
   }
 }
 
-function markApplyingUpdateOnQuit() {
-  if (updateState.downloaded && installUpdateOnQuit && !applyingUpdateOnQuitLogged) {
+function buildUpdaterDiagnosticText() {
+  const payload = getUpdateStatePayload();
+  const lines = [
+    "Operion Updater Diagnostic",
+    `currentVersion: ${payload.currentVersion ?? "n/a"}`,
+    `availableVersion: ${payload.availableVersion ?? "n/a"}`,
+    `status: ${payload.phase}`,
+    `message: ${payload.message || "n/a"}`,
+    `progressPercent: ${payload.progressPercent}%`,
+    `downloading: ${payload.downloading}`,
+    `downloaded: ${payload.downloaded}`,
+    `installReady: ${payload.installReady}`,
+    `willInstallOnQuit: ${payload.willInstallOnQuit}`,
+    `installedVersion: ${payload.installedVersion ?? "n/a"}`,
+    `lastError: ${payload.lastError ?? "n/a"}`,
+    "",
+    "recentUpdaterLogLines:",
+  ];
+
+  const relevantLogLines = getRecentUpdaterLogLines();
+  if (relevantLogLines.length === 0) {
+    lines.push("<sem linhas relevantes no desktop.log>");
+  } else {
+    lines.push(...relevantLogLines);
+  }
+
+  return lines.join("\n");
+}
+
+function markApplyingUpdateOnQuit(trigger = "unknown") {
+  if (updateState.installReady && installUpdateOnQuit && !applyingUpdateOnQuitLogged) {
     applyingUpdateOnQuitLogged = true;
-    logDesktop("info", "Aplicando atualizacao ao fechar");
-    logDesktop("info", "applying-update-on-quit=true");
+    logDesktop("info", "will-install-on-quit=true");
+    logDesktop(
+      "info",
+      `Aplicando atualizacao ao fechar. trigger=${trigger} version=${updateState.availableVersion || "unknown"}`,
+    );
   }
 }
 
 function getUpdateStatePayload() {
+  syncCurrentVersionState();
   return {
     phase: updateState.phase,
+    status: updateState.phase,
     message: updateState.message,
-    percent: updateState.percent,
-    version: updateState.version,
-    availableVersion: updateState.version,
+    percent: updateState.progressPercent,
+    progressPercent: updateState.progressPercent,
+    version: updateState.availableVersion,
+    currentVersion: updateState.currentVersion,
+    availableVersion: updateState.availableVersion,
     available: updateState.available,
     downloading: updateState.downloading,
     downloaded: updateState.downloaded,
+    installReady: updateState.installReady,
     updateDownloaded: updateState.downloaded,
     installUpdateOnQuit,
-    appVersion: app.getVersion(),
+    willInstallOnQuit: updateState.installReady && installUpdateOnQuit,
+    appVersion: updateState.currentVersion,
     isPackaged: app.isPackaged,
     lastError: updateState.lastError,
     installedVersion: updateState.installedVersion,
@@ -207,14 +356,23 @@ function broadcastUpdateStatus() {
 }
 
 function setUpdateStatus(message, options = {}) {
+  syncCurrentVersionState();
   updateState.message = message;
 
   if (typeof options.phase === "string" && options.phase) {
     updateState.phase = options.phase;
   }
 
-  if (typeof options.percent === "number" && Number.isFinite(options.percent)) {
-    updateState.percent = Math.max(0, Math.min(100, Math.round(options.percent)));
+  if (
+    typeof options.progressPercent === "number" &&
+    Number.isFinite(options.progressPercent)
+  ) {
+    updateState.progressPercent = Math.max(
+      0,
+      Math.min(100, Math.round(options.progressPercent)),
+    );
+  } else if (typeof options.percent === "number" && Number.isFinite(options.percent)) {
+    updateState.progressPercent = Math.max(0, Math.min(100, Math.round(options.percent)));
   }
 
   if (typeof options.available === "boolean") {
@@ -229,8 +387,20 @@ function setUpdateStatus(message, options = {}) {
     updateState.downloaded = options.downloaded;
   }
 
-  if (Object.prototype.hasOwnProperty.call(options, "version")) {
-    updateState.version = options.version || null;
+  if (Object.prototype.hasOwnProperty.call(options, "installReady")) {
+    updateState.installReady = Boolean(options.installReady);
+  } else if (Object.prototype.hasOwnProperty.call(options, "downloaded")) {
+    updateState.installReady = Boolean(options.downloaded);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(options, "currentVersion")) {
+    updateState.currentVersion = options.currentVersion || app.getVersion();
+  }
+
+  if (Object.prototype.hasOwnProperty.call(options, "availableVersion")) {
+    updateState.availableVersion = options.availableVersion || null;
+  } else if (Object.prototype.hasOwnProperty.call(options, "version")) {
+    updateState.availableVersion = options.version || null;
   }
 
   if (Object.prototype.hasOwnProperty.call(options, "error")) {
@@ -245,6 +415,11 @@ function setUpdateStatus(message, options = {}) {
     updateState.installedMessage = options.installedMessage || null;
   }
 
+  if (!updateState.downloaded) {
+    updateState.installReady = false;
+  }
+
+  persistUpdateSnapshot();
   broadcastUpdateStatus();
 }
 
@@ -645,9 +820,13 @@ function createMainWindow() {
 
   mainWindow.on("close", (event) => {
     if (!isQuitting) {
-      if (updateState.downloaded && installUpdateOnQuit) {
+      if (updateState.installReady && installUpdateOnQuit) {
+        event.preventDefault();
         isQuitting = true;
-        markApplyingUpdateOnQuit();
+        markApplyingUpdateOnQuit("window-close");
+        setImmediate(() => {
+          app.quit();
+        });
         return;
       }
 
@@ -683,10 +862,12 @@ function checkForUpdatesSafe(trigger = "auto") {
   if (!app.isPackaged) {
     setUpdateStatus("Auto-update ativo apenas no app instalado", {
       phase: "disabled",
-      percent: 0,
+      progressPercent: 0,
       available: false,
       downloading: false,
       downloaded: false,
+      installReady: false,
+      availableVersion: null,
       error: null,
     });
     logDesktop("info", "Checagem de update ignorada em ambiente nao empacotado");
@@ -695,13 +876,13 @@ function checkForUpdatesSafe(trigger = "auto") {
 
   logDesktop("info", `Checando atualizacoes (${trigger})`);
   autoUpdater
-    .checkForUpdatesAndNotify()
+    .checkForUpdates()
     .then(() => {
       logDesktop("info", "Checagem de update iniciada");
     })
     .catch((error) => {
       logDesktop("warn", `Falha ao checar update (app segue offline): ${error.message}`);
-      if (!updateState.downloaded) {
+      if (!updateState.installReady) {
         setUpdateStatus("Sem conexao para update (app segue offline)", {
           phase: "error",
           error: error.message,
@@ -711,20 +892,23 @@ function checkForUpdatesSafe(trigger = "auto") {
 }
 
 function applyUpdateNow() {
-  if (!updateState.downloaded) {
+  if (!updateState.installReady) {
     return;
   }
 
   try {
     setUpdateStatus("Atualizacao baixada. Reiniciando...", {
       phase: "installing",
-      percent: 100,
+      progressPercent: 100,
       available: true,
       downloading: false,
       downloaded: true,
+      installReady: true,
       error: null,
     });
     isQuitting = true;
+    markApplyingUpdateOnQuit("manual-install");
+    logDesktop("info", "quitAndInstall called");
     autoUpdater.quitAndInstall();
   } catch (error) {
     logDesktop("error", `Falha ao aplicar update: ${error.message}`);
@@ -733,18 +917,42 @@ function applyUpdateNow() {
 
 function configureAutoUpdater() {
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = installUpdateOnQuit;
+  installUpdateOnQuit = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  if (nativeAutoUpdater && typeof nativeAutoUpdater.on === "function") {
+    nativeAutoUpdater.on("before-quit-for-update", () => {
+      logDesktop("info", "before-quit-for-update");
+      setUpdateStatus("Instalando atualizacao...", {
+        phase: "installing",
+        progressPercent: 100,
+        available: true,
+        downloading: false,
+        downloaded: true,
+        installReady: true,
+        error: null,
+      });
+    });
+  }
 
   autoUpdater.on("checking-for-update", () => {
+    const preserveInstallReady = updateState.installReady;
     logDesktop("info", "checking-for-update");
-    setUpdateStatus("Verificando atualizacoes...", {
-      phase: "checking",
-      percent: 0,
-      available: false,
-      downloading: false,
-      downloaded: false,
-      error: null,
-    });
+    setUpdateStatus(
+      preserveInstallReady
+        ? "Atualizacao baixada. Feche o app para instalar."
+        : "Verificando atualizacoes...",
+      {
+        phase: preserveInstallReady ? "pending-install" : "checking",
+        progressPercent: preserveInstallReady ? 100 : 0,
+        available: preserveInstallReady,
+        downloading: false,
+        downloaded: preserveInstallReady,
+        installReady: preserveInstallReady,
+        availableVersion: updateState.availableVersion,
+        error: null,
+      },
+    );
   });
 
   autoUpdater.on("update-available", (info) => {
@@ -752,11 +960,14 @@ function configureAutoUpdater() {
     lastDownloadProgressLogged = -1;
     setUpdateStatus("Atualizacao disponivel. Baixando...", {
       phase: "downloading",
-      percent: 0,
+      progressPercent: 0,
       available: true,
       downloading: true,
       downloaded: false,
-      version: info?.version || null,
+      installReady: false,
+      availableVersion: info?.version || null,
+      installedVersion: null,
+      installedMessage: null,
       error: null,
     });
     logDesktop("info", `update-available version=${info?.version || "unknown"}`);
@@ -767,31 +978,35 @@ function configureAutoUpdater() {
     const percent = Math.max(0, Math.min(100, Math.round(progress.percent || 0)));
     setUpdateStatus(`Baixando atualizacao... ${percent}%`, {
       phase: "downloading",
-      percent,
+      progressPercent: percent,
       available: true,
       downloading: true,
       downloaded: false,
+      installReady: false,
       error: null,
     });
 
-    if (percent >= lastDownloadProgressLogged + 10 || percent === 100) {
+    if (percent !== lastDownloadProgressLogged) {
       lastDownloadProgressLogged = percent;
       logDesktop("info", `download-progress percent=${percent}`);
     }
   });
 
   autoUpdater.on("update-downloaded", (info) => {
-    rememberDownloadedVersion(info?.version || updateState.version);
+    const downloadedVersion = info?.version || updateState.availableVersion;
+    rememberDownloadedVersion(downloadedVersion);
     setUpdateStatus("Atualizacao baixada. Feche o app para instalar.", {
       phase: "downloaded",
-      percent: 100,
+      progressPercent: 100,
       available: true,
       downloading: false,
       downloaded: true,
-      version: info?.version || updateState.version,
+      installReady: true,
+      availableVersion: downloadedVersion,
       error: null,
     });
-    logDesktop("info", `update-downloaded version=${info?.version || "unknown"}`);
+    logDesktop("info", `update-downloaded version=${downloadedVersion || "unknown"}`);
+    logDesktop("info", "will-install-on-quit=true");
     showSystemNotification(
       "Operion",
       `Atualizacao ${info.version} baixada. Feche o app para instalar.`,
@@ -799,27 +1014,29 @@ function configureAutoUpdater() {
   });
 
   autoUpdater.on("update-not-available", () => {
-    if (!updateState.downloaded) {
+    if (!updateState.installReady) {
       setUpdateStatus("Sem atualizacoes disponiveis.", {
         phase: "up-to-date",
-        percent: 0,
+        progressPercent: 0,
         available: false,
         downloading: false,
         downloaded: false,
-        version: null,
+        installReady: false,
+        availableVersion: null,
         error: null,
       });
     }
 
-    logDesktop("info", "Auto-update: nenhuma atualizacao disponivel");
+    logDesktop("info", "update-not-available");
   });
 
   autoUpdater.on("error", (error) => {
     logDesktop("warn", `Erro no auto-update: ${error.message}`);
-    if (!updateState.downloaded) {
+    if (!updateState.installReady) {
       setUpdateStatus("Nao foi possivel atualizar agora. O app continua funcional.", {
         phase: "error",
         downloading: false,
+        installReady: false,
         error: error.message,
       });
     }
@@ -832,6 +1049,7 @@ function registerUpdaterIpcHandlers() {
     "operion-updater:check-now",
     "operion-updater:install-now",
     "operion-updater:set-install-on-quit",
+    "operion-updater:copy-diagnostic",
   ];
 
   for (const channel of channels) {
@@ -849,7 +1067,7 @@ function registerUpdaterIpcHandlers() {
   });
 
   ipcMain.handle("operion-updater:install-now", async () => {
-    if (!updateState.downloaded) {
+    if (!updateState.installReady) {
       return {
         ok: false,
         message: "Nenhuma atualizacao baixada para instalar.",
@@ -863,16 +1081,25 @@ function registerUpdaterIpcHandlers() {
     };
   });
 
-  ipcMain.handle("operion-updater:set-install-on-quit", async (_event, enabled) => {
-    installUpdateOnQuit = Boolean(enabled);
-    autoUpdater.autoInstallOnAppQuit = installUpdateOnQuit;
+  ipcMain.handle("operion-updater:set-install-on-quit", async () => {
+    installUpdateOnQuit = true;
+    autoUpdater.autoInstallOnAppQuit = true;
     broadcastUpdateStatus();
 
     return {
       ok: true,
-      message: installUpdateOnQuit
-        ? "Atualizacao sera aplicada ao fechar o app."
-        : "Atualizacao automatica ao fechar foi desativada.",
+      message: "A instalacao automatica ao fechar permanece ativa para garantir o update.",
+    };
+  });
+
+  ipcMain.handle("operion-updater:copy-diagnostic", async () => {
+    const diagnostic = buildUpdaterDiagnosticText();
+    clipboard.writeText(diagnostic);
+    logDesktop("info", "Updater diagnostic copied to clipboard");
+
+    return {
+      ok: true,
+      message: "Diagnostico do updater copiado.",
     };
   });
 }
@@ -916,18 +1143,14 @@ function buildTrayMenuTemplate() {
     },
     {
       label: "Reiniciar e atualizar agora",
-      enabled: updateState.downloaded,
+      enabled: updateState.installReady,
       click: () => applyUpdateNow(),
     },
     {
-      label: "Atualizar ao fechar",
+      label: "Atualizar ao fechar (ativo)",
       type: "checkbox",
       checked: installUpdateOnQuit,
-      click: (menuItem) => {
-        installUpdateOnQuit = menuItem.checked;
-        autoUpdater.autoInstallOnAppQuit = installUpdateOnQuit;
-        broadcastUpdateStatus();
-      },
+      enabled: false,
     },
     {
       label: "Abrir pasta de logs",
@@ -937,7 +1160,7 @@ function buildTrayMenuTemplate() {
     {
       label: "Quit",
       click: async () => {
-        if (updateState.downloaded && installUpdateOnQuit) {
+        if (updateState.installReady && installUpdateOnQuit) {
           applyUpdateNow();
           return;
         }
@@ -972,6 +1195,7 @@ function createTray() {
 app.whenReady().then(async () => {
   initLogging();
   loadPersistedUpdaterState();
+  logDesktop("info", `app version on startup=${app.getVersion()}`);
   detectInstalledUpdateOnStartup();
   logDesktop("info", "Operion desktop iniciado");
   if (DEBUG_MODE) {
@@ -1004,7 +1228,10 @@ app.whenReady().then(async () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
-  markApplyingUpdateOnQuit();
+  if (updateState.installReady) {
+    logDesktop("info", "before-quit-for-update");
+    markApplyingUpdateOnQuit("before-quit");
+  }
   stopEmbeddedBackend();
 });
 

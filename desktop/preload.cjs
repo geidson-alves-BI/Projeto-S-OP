@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld(
     getStatus: () => ipcRenderer.invoke("operion-updater:get-status"),
     checkNow: () => ipcRenderer.invoke("operion-updater:check-now"),
     installNow: () => ipcRenderer.invoke("operion-updater:install-now"),
+    copyDiagnostic: () => ipcRenderer.invoke("operion-updater:copy-diagnostic"),
     setInstallOnQuit: (enabled) =>
       ipcRenderer.invoke("operion-updater:set-install-on-quit", Boolean(enabled)),
     onStatus: (callback) => {
