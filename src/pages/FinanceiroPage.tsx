@@ -6,20 +6,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import MetricCard from "@/components/MetricCard";
+import PageTransition from "@/components/PageTransition";
 import { ABCBadge, StratBadge } from "@/components/ABCBadge";
 import { useAppData } from "@/contexts/AppDataContext";
 import { getRMSummary } from "@/lib/rmEngine";
-
-function downloadCSV(rows: string[][], filename: string) {
-  const csv = rows.map(r => r.join(";")).join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+import { downloadCSV } from "@/lib/downloadCSV";
 
 export default function FinanceiroPage() {
   const { state, rmData } = useAppData();
@@ -33,21 +24,18 @@ export default function FinanceiroPage() {
   const [sortByRm, setSortByRm] = useState<"investimento" | "cobertura">("investimento");
   const [slaLevel, setSlaLevel] = useState(84);
 
-  // SKU Investment: target stock value (using consumoDiario * diasAlvo as proxy)
   const skuInvestment = useMemo(() => {
     if (!state) return [];
     return state.products.map(p => {
       const dias = p.diasAlvoAjustado ?? p.diasAlvoBase;
       const targetKg = p.consumoDiario * dias;
-      // estimate cost: use mediaMensal as proxy weight
-      const estimatedValue = targetKg; // in kg (no cost data for FG)
+      const estimatedValue = targetKg;
       return { ...p, diasAlvo: dias, targetKg, estimatedValue };
     }).sort((a, b) => sortBySku === "investimento" ? b.targetKg - a.targetKg : b.volumeAnual - a.volumeAnual);
   }, [state, sortBySku]);
 
   const totalSkuTarget = skuInvestment.reduce((s, p) => s + p.targetKg, 0);
 
-  // RM Investment
   const rmInvestment = useMemo(() => {
     if (!rmData) return [];
     return rmData.map(rm => {
@@ -88,20 +76,19 @@ export default function FinanceiroPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
+    <PageTransition className="p-6 space-y-6">
+      <div className="page-header">
+        <h2>
           <DollarSign className="h-5 w-5 text-primary" /> Financeiro — Investimento
         </h2>
-        <p className="text-xs text-muted-foreground font-mono mt-1">Investimento em estoque por SKU e por Matéria-Prima</p>
+        <p>Investimento em estoque por SKU e por Matéria-Prima</p>
       </div>
 
-      {/* Global KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {state && <MetricCard label="SKUs" value={state.products.length} />}
+        {state && <MetricCard label="SKUs" value={state.products.length} accent />}
         {state && <MetricCard label="Target Estoque FG" value={`${Math.round(totalSkuTarget).toLocaleString()} kg`} />}
-        {rmData && <MetricCard label="Estoque RM Atual (R$)" value={`R$ ${Math.round(totalRmEstoque).toLocaleString()}`} />}
-        {rmData && <MetricCard label="Investimento RM p/ SLA" value={`R$ ${Math.round(totalRmInvestimento).toLocaleString()}`} sub={`SLA ${slaLevel}%`} />}
+        {rmData && <MetricCard label="Estoque RM Atual (U$)" value={`U$ ${Math.round(totalRmEstoque).toLocaleString()}`} />}
+        {rmData && <MetricCard label="Investimento RM p/ SLA" value={`U$ ${Math.round(totalRmInvestimento).toLocaleString()}`} sub={`SLA ${slaLevel}%`} />}
       </div>
 
       <Tabs defaultValue={state ? "sku" : "rm"} className="w-full">
@@ -114,7 +101,7 @@ export default function FinanceiroPage() {
           <TabsContent value="sku" className="space-y-4">
             <div className="metric-card flex items-center gap-4">
               <div>
-                <label className="text-xs text-muted-foreground font-mono mb-1 block">Ordenar por</label>
+                <label className="text-[11px] text-muted-foreground font-mono mb-1 block uppercase tracking-wider">Ordenar por</label>
                 <Select value={sortBySku} onValueChange={v => setSortBySku(v as any)}>
                   <SelectTrigger className="w-44 font-mono text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -123,8 +110,8 @@ export default function FinanceiroPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button variant="outline" size="sm" className="font-mono text-xs ml-auto" onClick={handleExportSku}>
-                <Download className="h-3.5 w-3.5 mr-1" /> Exportar
+              <Button variant="outline" size="sm" className="font-mono text-xs ml-auto gap-1.5" onClick={handleExportSku}>
+                <Download className="h-3.5 w-3.5" /> Exportar
               </Button>
             </div>
 
@@ -159,19 +146,19 @@ export default function FinanceiroPage() {
           <TabsContent value="rm" className="space-y-4">
             <div className="metric-card flex flex-wrap items-center gap-4">
               <div>
-                <label className="text-xs text-muted-foreground font-mono mb-1 block">SLA</label>
+                <label className="text-[11px] text-muted-foreground font-mono mb-1 block uppercase tracking-wider">SLA</label>
                 <Select value={String(slaLevel)} onValueChange={v => setSlaLevel(Number(v))}>
                   <SelectTrigger className="w-28 font-mono text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="90">90%</SelectItem>
-                    <SelectItem value="95">95%</SelectItem>
+                    <SelectItem value="50">50%</SelectItem>
+                    <SelectItem value="84">84%</SelectItem>
                     <SelectItem value="98">98%</SelectItem>
-                    <SelectItem value="99">99%</SelectItem>
+                    <SelectItem value="99.9">99.9%</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <label className="text-xs text-muted-foreground font-mono mb-1 block">Ordenar por</label>
+                <label className="text-[11px] text-muted-foreground font-mono mb-1 block uppercase tracking-wider">Ordenar por</label>
                 <Select value={sortByRm} onValueChange={v => setSortByRm(v as any)}>
                   <SelectTrigger className="w-44 font-mono text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -180,8 +167,8 @@ export default function FinanceiroPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button variant="outline" size="sm" className="font-mono text-xs ml-auto" onClick={handleExportRm}>
-                <Download className="h-3.5 w-3.5 mr-1" /> Exportar
+              <Button variant="outline" size="sm" className="font-mono text-xs ml-auto gap-1.5" onClick={handleExportRm}>
+                <Download className="h-3.5 w-3.5" /> Exportar
               </Button>
             </div>
 
@@ -223,6 +210,6 @@ export default function FinanceiroPage() {
           <p className="text-sm text-muted-foreground font-mono">Carregue a base de Produção (FG) ou Matéria-Prima (RM) primeiro.</p>
         </div>
       )}
-    </div>
+    </PageTransition>
   );
 }

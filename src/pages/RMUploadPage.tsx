@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Upload, CheckCircle2, XCircle, AlertTriangle, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import FileUpload from "@/components/FileUpload";
+import PageTransition from "@/components/PageTransition";
 import { useAppData } from "@/contexts/AppDataContext";
 import { parseFile } from "@/lib/fileParser";
 import { postMultipart } from "@/lib/api";
@@ -33,24 +34,16 @@ export default function RMUploadPage() {
 
   const handleValidate = async () => {
     if (!file) return;
-
     setLoading(true);
     setError(null);
     setValidation(null);
-
     try {
       const raw = await parseFile(file);
-      if (raw.length === 0) {
-        setError("Arquivo vazio ou sem dados validos.");
-        return;
-      }
-
+      if (raw.length === 0) { setError("Arquivo vazio ou sem dados validos."); return; }
       const cols = Object.keys(raw[0]);
       const result = validateRMColumns(cols);
       setValidation(result);
-
       if (!result.valid) return;
-
       const rmData = processRM(raw, result.rename);
       setRowCount(rmData.length);
       setRMData(rmData);
@@ -63,27 +56,22 @@ export default function RMUploadPage() {
 
   const handleBOMUpload = async () => {
     if (!bomFile) return;
-
     setBomLoading(true);
     setBomError(null);
     setBomSuccess(null);
     setBomDetails(null);
-
     try {
       const formData = new FormData();
       formData.append("file", bomFile);
-
       const response = (await postMultipart("/analytics/upload_bom", formData)) as Record<string, unknown>;
-
       const details = [
         typeof response.rows === "number" ? `${response.rows} linhas` : null,
         typeof response.total_rows === "number" ? `${response.total_rows} linhas` : null,
         typeof response.products === "number" ? `${response.products} produtos` : null,
         typeof response.product_count === "number" ? `${response.product_count} produtos` : null,
       ].filter(Boolean);
-
       setBomSuccess("BOM carregada com sucesso");
-      setBomDetails(details.length > 0 ? details.join(" - ") : null);
+      setBomDetails(details.length > 0 ? details.join(" · ") : null);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setBomError(`Falha ao carregar BOM: ${message}`);
@@ -95,19 +83,17 @@ export default function RMUploadPage() {
   let lastGroup = "";
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto">
-      <div>
-        <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
+    <PageTransition className="p-6 space-y-6 max-w-5xl mx-auto">
+      <div className="page-header">
+        <h2>
           <Upload className="h-5 w-5 text-primary" /> Upload Materia-Prima (RM)
         </h2>
-        <p className="text-xs text-muted-foreground font-mono mt-1">
-          Envie a base de materias-primas para analise de SLA e cobertura.
-        </p>
+        <p>Envie a base de materias-primas para analise de SLA e cobertura.</p>
       </div>
 
       <div className="metric-card">
         <h3 className="text-sm font-bold font-mono text-foreground mb-3 flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-warning" /> Dicionario de Dados - Colunas Esperadas
+          <AlertTriangle className="h-4 w-4 text-warning" /> Dicionario de Dados — Colunas Esperadas
         </h3>
         <div className="overflow-x-auto">
           <table className="data-table">
@@ -124,7 +110,6 @@ export default function RMUploadPage() {
               {DATA_DICT.map(item => {
                 const showGroup = item.group !== lastGroup;
                 lastGroup = item.group;
-
                 return (
                   <tr key={item.field}>
                     <td className="text-xs font-semibold whitespace-nowrap">{showGroup ? item.group : ""}</td>
@@ -150,25 +135,17 @@ export default function RMUploadPage() {
         <FileUpload label="Base de Materia-Prima" file={file} onFileSelect={setFile} />
       </div>
 
-      <div className="metric-card space-y-3 max-w-2xl">
+      <div className="metric-card space-y-4 max-w-2xl">
         <h3 className="text-sm font-bold font-mono text-foreground">Importar BOM (Materia-prima por produto)</h3>
         <p className="text-xs text-muted-foreground font-mono">
           Colunas esperadas: product_code, raw_material_code, raw_material_name, qty_per_unit, unit_cost
         </p>
-
         <div className="max-w-md">
-          <FileUpload
-            label="Arquivo BOM (CSV/XLSX)"
-            file={bomFile}
-            onFileSelect={setBomFile}
-            accept=".csv,.xlsx,.xls"
-          />
+          <FileUpload label="Arquivo BOM (CSV/XLSX)" file={bomFile} onFileSelect={setBomFile} accept=".csv,.xlsx,.xls" />
         </div>
-
         <Button onClick={handleBOMUpload} disabled={!bomFile || bomLoading} className="font-mono text-sm w-full max-w-md">
           {bomLoading ? "Enviando BOM..." : "Importar BOM"}
         </Button>
-
         {bomSuccess && <p className="text-xs font-mono text-success">{bomSuccess}</p>}
         {bomDetails && <p className="text-xs font-mono text-muted-foreground">{bomDetails}</p>}
         {bomError && <p className="text-xs font-mono text-destructive">{bomError}</p>}
@@ -178,29 +155,28 @@ export default function RMUploadPage() {
         <Button onClick={handleValidate} disabled={!file || loading} className="font-mono text-sm">
           {loading ? "Validando..." : "Validar e carregar"}
         </Button>
-
         {validation?.valid && rowCount != null && (
-          <Button variant="outline" onClick={() => navigate("/rm-sla")} className="font-mono text-sm gap-1">
+          <Button variant="outline" onClick={() => navigate("/rm-sla")} className="font-mono text-sm gap-1.5">
             Ir para Gestao SLA <ArrowRight className="h-4 w-4" />
           </Button>
         )}
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+        <div className="alert-error">
           <XCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
           <p className="text-sm text-destructive font-mono">{error}</p>
         </div>
       )}
 
       {validation && !validation.valid && (
-        <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+        <div className="alert-error">
           <XCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
           <div>
             <p className="text-sm text-destructive font-mono font-bold">Colunas obrigatorias ausentes:</p>
             <ul className="mt-1 space-y-0.5">
               {validation.missing.map(missing => (
-                <li key={missing} className="text-xs text-destructive font-mono">- {missing}</li>
+                <li key={missing} className="text-xs text-destructive font-mono">— {missing}</li>
               ))}
             </ul>
           </div>
@@ -208,13 +184,13 @@ export default function RMUploadPage() {
       )}
 
       {validation?.unmapped?.length > 0 && (
-        <div className="flex items-start gap-2 bg-warning/10 border border-warning/30 rounded-lg p-3">
+        <div className="alert-warning">
           <AlertTriangle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
           <div>
             <p className="text-sm text-warning font-mono font-bold">Colunas nao mapeadas (ignorado no upload):</p>
             <ul className="mt-1 space-y-0.5">
               {validation.unmapped.map(col => (
-                <li key={col} className="text-xs text-warning font-mono">- {col}</li>
+                <li key={col} className="text-xs text-warning font-mono">— {col}</li>
               ))}
             </ul>
           </div>
@@ -222,16 +198,16 @@ export default function RMUploadPage() {
       )}
 
       {validation?.valid && rowCount != null && (
-        <div className="flex items-start gap-2 bg-success/10 border border-success/20 rounded-lg p-3">
+        <div className="alert-success">
           <CheckCircle2 className="h-4 w-4 text-success mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm text-success font-mono font-bold">Validacao OK - {rowCount} materiais carregados</p>
+            <p className="text-sm text-success font-mono font-bold">Validacao OK — {rowCount} materiais carregados</p>
             <p className="text-xs text-muted-foreground font-mono mt-0.5">
               Navegue para "Gestao SLA" para visualizar o painel dinamico.
             </p>
           </div>
         </div>
       )}
-    </div>
+    </PageTransition>
   );
 }

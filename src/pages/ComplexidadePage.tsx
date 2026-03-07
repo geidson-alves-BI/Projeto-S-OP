@@ -4,9 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import FileUpload from "@/components/FileUpload";
 import MetricCard from "@/components/MetricCard";
+import PageTransition from "@/components/PageTransition";
 import { ABCBadge } from "@/components/ABCBadge";
 import { useAppData } from "@/contexts/AppDataContext";
 import { parseFile } from "@/lib/fileParser";
+import { downloadCSV } from "@/lib/downloadCSV";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 interface ComplexityData {
@@ -48,16 +50,6 @@ function normalize(s: string): string {
   return s.trim().toLowerCase().replace(/[\n\t]/g, " ").replace(/\s+/g, " ").replace(/[^\w\s]/g, "");
 }
 
-function downloadCSV(rows: string[][], filename: string) {
-  const csv = rows.map(r => r.join(";")).join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 export default function ComplexidadePage() {
   const { state } = useAppData();
@@ -175,7 +167,7 @@ export default function ComplexidadePage() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto">
+    <PageTransition className="p-6 space-y-6 max-w-5xl mx-auto">
       <div>
         <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
           <Puzzle className="h-5 w-5 text-primary" /> Complexidade Produtiva
@@ -327,6 +319,6 @@ export default function ComplexidadePage() {
           </div>
         </>
       )}
-    </div>
+    </PageTransition>
   );
 }
