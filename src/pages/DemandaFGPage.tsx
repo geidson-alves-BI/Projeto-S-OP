@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import FileUpload from "@/components/FileUpload";
 import MetricCard from "@/components/MetricCard";
+import PageTransition from "@/components/PageTransition";
 import { useAppData } from "@/contexts/AppDataContext";
 import { parseFile } from "@/lib/fileParser";
 import { ProductSeriesChart } from "@/components/Charts";
+import { downloadCSV } from "@/lib/downloadCSV";
 
 const FG_DATA_DICT = [
   { col: "Mês", tipo: "Texto/Num", obrigatório: true, desc: "Mês de referência (1-12 ou nome)" },
@@ -18,17 +20,6 @@ const FG_DATA_DICT = [
   { col: "Quantidade Produzida", tipo: "Numérico", obrigatório: true, desc: "Volume produzido (kg)" },
   { col: "Cliente", tipo: "Texto", obrigatório: false, desc: "Nome do cliente (para concentração)" },
 ];
-
-function downloadCSV(rows: string[][], filename: string) {
-  const csv = rows.map(r => r.join(";")).join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 export default function DemandaFGPage() {
   const { state, fileProd, setFileProd, fileCli, setFileCli, handleLoad, loading, error } = useAppData();
@@ -59,33 +50,31 @@ export default function DemandaFGPage() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+    <PageTransition className="p-6 space-y-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
+        <div className="page-header">
+          <h2>
             <BarChart3 className="h-5 w-5 text-primary" /> Demanda FG — Finished Goods
           </h2>
-          <p className="text-xs text-muted-foreground font-mono mt-1">
-            Upload, validação e visão histórica de demanda
-          </p>
+          <p>Upload, validação e visão histórica de demanda</p>
         </div>
         <div className="flex gap-2">
           <Button
             variant={viewMode === "upload" ? "default" : "outline"}
             size="sm"
-            className="font-mono text-xs"
+            className="font-mono text-xs gap-1.5"
             onClick={() => setViewMode("upload")}
           >
-            <Upload className="h-3.5 w-3.5 mr-1" /> Upload
+            <Upload className="h-3.5 w-3.5" /> Upload
           </Button>
           {state && (
             <Button
               variant={viewMode === "historico" ? "default" : "outline"}
               size="sm"
-              className="font-mono text-xs"
+              className="font-mono text-xs gap-1.5"
               onClick={() => setViewMode("historico")}
             >
-              <BarChart3 className="h-3.5 w-3.5 mr-1" /> Histórico
+              <BarChart3 className="h-3.5 w-3.5" /> Histórico
             </Button>
           )}
         </div>
@@ -93,7 +82,6 @@ export default function DemandaFGPage() {
 
       {viewMode === "upload" && (
         <>
-          {/* Data Dictionary */}
           <div className="metric-card">
             <h3 className="text-sm font-bold font-mono text-foreground mb-3 flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-warning" /> Dicionário de Dados — Colunas Esperadas
@@ -123,14 +111,13 @@ export default function DemandaFGPage() {
             </div>
           </div>
 
-          {/* Upload */}
           <div className="grid gap-4 sm:grid-cols-2 max-w-2xl">
             <FileUpload label="Base de Produção (obrigatório)" file={fileProd} onFileSelect={setFileProd} />
             <FileUpload label="Base de Clientes (opcional)" file={fileCli} onFileSelect={setFileCli} />
           </div>
 
           {error && (
-            <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+            <div className="alert-error">
               <XCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
               <p className="text-sm text-destructive font-mono">{error}</p>
             </div>
@@ -141,7 +128,7 @@ export default function DemandaFGPage() {
           </Button>
 
           {state && (
-            <div className="flex items-start gap-2 bg-success/10 border border-success/20 rounded-lg p-3">
+            <div className="alert-success">
               <CheckCircle2 className="h-4 w-4 text-success mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm text-success font-mono font-bold">
@@ -158,19 +145,17 @@ export default function DemandaFGPage() {
 
       {viewMode === "historico" && state && (
         <>
-          {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <MetricCard label="Total SKUs" value={state.products.length} />
+            <MetricCard label="Total SKUs" value={state.products.length} accent />
             <MetricCard label="Meses" value={state.monthCols.length} sub={`${state.monthCols[0]} → ${state.monthCols[state.monthCols.length - 1]}`} />
             <MetricCard label="Vol. Total" value={`${Math.round(state.products.reduce((s, p) => s + p.volumeAnual, 0)).toLocaleString()} kg`} />
             <MetricCard label="Classe A" value={state.products.filter(p => p.classeABC === "A").length} />
             <MetricCard label="Clientes" value={state.hasClientes ? state.clientes.length : "N/A"} />
           </div>
 
-          {/* Controls */}
           <div className="metric-card flex flex-wrap items-center gap-4">
             <div>
-              <label className="text-xs text-muted-foreground font-mono mb-1 block">Filtro ABC</label>
+              <label className="text-[11px] text-muted-foreground font-mono mb-1 block uppercase tracking-wider">Filtro ABC</label>
               <Select value={filterABC} onValueChange={setFilterABC}>
                 <SelectTrigger className="w-36 font-mono text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -182,12 +167,11 @@ export default function DemandaFGPage() {
               </Select>
             </div>
             <span className="text-xs text-muted-foreground font-mono">{filteredProducts.length} SKUs</span>
-            <Button variant="outline" size="sm" className="font-mono text-xs ml-auto" onClick={handleExportHistorico}>
-              <Download className="h-3.5 w-3.5 mr-1" /> Exportar CSV
+            <Button variant="outline" size="sm" className="font-mono text-xs ml-auto gap-1.5" onClick={handleExportHistorico}>
+              <Download className="h-3.5 w-3.5" /> Exportar CSV
             </Button>
           </div>
 
-          {/* Historical table */}
           <div className="metric-card overflow-x-auto max-h-[500px] overflow-y-auto">
             <table className="data-table">
               <thead className="sticky top-0 z-10">
@@ -219,12 +203,11 @@ export default function DemandaFGPage() {
             </table>
           </div>
 
-          {/* Sparklines for top 5 */}
           <div className="metric-card">
             <h3 className="text-sm font-semibold text-foreground mb-3">Top 5 SKUs — Série Histórica</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredProducts.slice(0, 5).map(p => (
-                <div key={p.SKU_LABEL} className="border border-border rounded-lg p-3">
+                <div key={p.SKU_LABEL} className="border border-border/60 rounded-xl p-4">
                   <p className="text-xs font-mono text-muted-foreground mb-2 truncate" title={p.SKU_LABEL}>{p.SKU_LABEL}</p>
                   <ProductSeriesChart data={p} monthCols={state.monthCols} />
                 </div>
@@ -233,6 +216,6 @@ export default function DemandaFGPage() {
           </div>
         </>
       )}
-    </div>
+    </PageTransition>
   );
 }
