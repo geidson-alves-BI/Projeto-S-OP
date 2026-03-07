@@ -347,7 +347,7 @@ export default function MtsPage() {
           </div>
         )}
       </div>
-    </div>
+    </PageTransition>
   );
 }
 

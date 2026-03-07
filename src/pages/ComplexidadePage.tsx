@@ -319,6 +319,6 @@ export default function ComplexidadePage() {
           </div>
         </>
       )}
-    </div>
+    </PageTransition>
   );
 }

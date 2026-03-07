@@ -360,7 +360,7 @@ export default function ForecastPage() {
           </div>
         )}
       </div>
-    </div>
+    </PageTransition>
   );
 }
 
