@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { BarChart3, TrendingUp, Package, FileSpreadsheet } from "lucide-react";
+import PageTransition from "@/components/PageTransition";
 import { useAppData } from "@/contexts/AppDataContext";
 import MetricCard from "@/components/MetricCard";
 import { Button } from "@/components/ui/button";
@@ -365,12 +366,12 @@ export default function HomePage() {
   const availableUpdaterVersion = updaterSnapshot.availableVersion ?? updaterSnapshot.version ?? "n/a";
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h2 className="text-lg font-bold font-mono text-foreground">Home Executiva - S&OE / S&OP</h2>
-        <p className="text-xs text-muted-foreground font-mono mt-1">
-          {state.products.length} SKUs - {state.monthCols.length} meses
-          {state.hasClientes && ` - ${state.clientes.length} clientes`}
+    <PageTransition className="p-6 space-y-6">
+      <div className="page-header">
+        <h2>Home Executiva — S&OE / S&OP</h2>
+        <p>
+          {state.products.length} SKUs · {state.monthCols.length} meses
+          {state.hasClientes && ` · ${state.clientes.length} clientes`}
         </p>
       </div>
 
@@ -656,6 +657,6 @@ export default function HomePage() {
           </div>
         )}
       </div>
-    </div>
+    </PageTransition>
   );
 }
