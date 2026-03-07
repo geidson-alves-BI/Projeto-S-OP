@@ -6,11 +6,13 @@ import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Download, TrendingUp } from "lucide-react";
 import MetricCard from "@/components/MetricCard";
+import PageTransition from "@/components/PageTransition";
 import MultiSelect from "@/components/MultiSelect";
 import { ABCBadge, StratBadge } from "@/components/ABCBadge";
 import { useAppData } from "@/contexts/AppDataContext";
 import type { ProductData } from "@/lib/pcpEngine";
 import { postJSON } from "@/lib/api";
+import { downloadCSV } from "@/lib/downloadCSV";
 import type { ForecastResult } from "@/types/analytics";
 
 interface ForecastInputRow {
@@ -74,16 +76,6 @@ function forecastProduct(p: ProductData, horizonMonths: number, growthPct: numbe
   return { months, totalForecast: Math.round(total), dailyRate: Math.round(total / (horizonMonths * 30)) };
 }
 
-function downloadCSV(rows: string[][], filename: string) {
-  const csv = rows.map(r => r.join(";")).join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 export default function ForecastPage() {
   const { state } = useAppData();
@@ -197,7 +189,7 @@ export default function ForecastPage() {
   if (!state) return null;
 
   return (
-    <div className="p-6 space-y-6">
+    <PageTransition className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">

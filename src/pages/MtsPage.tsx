@@ -5,9 +5,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Download, Package } from "lucide-react";
 import MetricCard from "@/components/MetricCard";
+import PageTransition from "@/components/PageTransition";
 import { ABCBadge, StratBadge } from "@/components/ABCBadge";
 import { useAppData } from "@/contexts/AppDataContext";
 import { postJSON } from "@/lib/api";
+import { downloadCSV } from "@/lib/downloadCSV";
 import type { SimulationResult } from "@/types/analytics";
 
 interface SimulationInputRow {
@@ -55,16 +57,6 @@ function parseFlexibleNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function downloadCSV(rows: string[][], filename: string) {
-  const csv = rows.map(r => r.join(";")).join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 export default function MtsPage() {
   const { state } = useAppData();
@@ -182,7 +174,7 @@ export default function MtsPage() {
   if (!state) return null;
 
   return (
-    <div className="p-6 space-y-6">
+    <PageTransition className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
