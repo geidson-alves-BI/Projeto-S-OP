@@ -1,3 +1,5 @@
+import type { AIConnectionStatus, AIIntegrationProvider } from "./analytics";
+
 export type OperionUpdaterStatus = {
   phase: string;
   status: string;
@@ -46,8 +48,6 @@ export type OperionConfig = {
   backendPort: number;
 };
 
-export type AIIntegrationProvider = "openai" | "deterministic";
-
 export type OperionGeneralPreferences = {
   compactNavigation: boolean;
   prioritizeAlerts: boolean;
@@ -57,7 +57,13 @@ export type OperionGeneralPreferences = {
 export type OperionAIIntegrationSettings = {
   provider: AIIntegrationProvider;
   apiKey: string;
+  apiKeyMasked: string | null;
+  hasApiKey: boolean;
   model: string;
+  providerActive: AIIntegrationProvider;
+  modelActive: string;
+  connectionStatus: AIConnectionStatus | null;
+  usingEnvironmentKey: boolean;
   lastSavedAt: string | null;
   lastTestedAt: string | null;
   lastStatus: string | null;

@@ -44,7 +44,16 @@ export type ContextPack = {
   [key: string]: unknown;
 };
 
-export type AIPersona = "SUPPLY" | "CFO" | "CEO";
+export type AIPersona = "SUPPLY" | "CFO" | "CEO" | "COO";
+export type AIIntegrationProvider = "openai" | "deterministic";
+export type AIConnectionStatus =
+  | "success"
+  | "invalid_key"
+  | "model_not_found"
+  | "network_error"
+  | "provider_not_configured"
+  | "fallback_only"
+  | "openai_error";
 
 export type AIEvidence = {
   path: string;
@@ -64,6 +73,12 @@ export type AIAction = {
   evidence: AIEvidence[];
 };
 
+export type AIOpportunity = {
+  title: string;
+  impact: "low" | "medium" | "high";
+  evidence: AIEvidence[];
+};
+
 export type AIInterpretRequest = {
   persona: AIPersona;
   context_pack?: ContextPack;
@@ -74,10 +89,45 @@ export type AIInterpretResponse = {
   persona: AIPersona;
   executive_summary: string[];
   risks: AIRisk[];
+  opportunities: AIOpportunity[];
   actions: AIAction[];
+  limitations: string[];
   questions_to_validate: string[];
   data_quality_flags: string[];
   disclaimer: string;
+  providerUsed: AIIntegrationProvider;
+  modelUsed: string;
+  usedFallback: boolean;
+  reasonFallback: string | null;
+};
+
+export type AIIntegrationConfigRequest = {
+  provider: AIIntegrationProvider;
+  model: string;
+  apiKey?: string | null;
+  keepExistingKey?: boolean;
+};
+
+export type AIIntegrationConfigResponse = {
+  provider: AIIntegrationProvider;
+  providerActive: AIIntegrationProvider;
+  model: string;
+  modelActive: string;
+  hasApiKey: boolean;
+  apiKeyMasked: string | null;
+  usingEnvironmentKey: boolean;
+  connectionStatus: AIConnectionStatus | null;
+  lastTestedAt: string | null;
+  lastTestMessage: string | null;
+};
+
+export type AITestConnectionResponse = {
+  success: boolean;
+  status: AIConnectionStatus;
+  message: string;
+  providerActive: AIIntegrationProvider;
+  modelActive: string;
+  lastTestedAt: string | null;
 };
 
 export type RunSOPPipelineRequest = {

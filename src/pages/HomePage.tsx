@@ -17,6 +17,8 @@ import MetricCard from "@/components/MetricCard";
 import PageTransition from "@/components/PageTransition";
 import { Button } from "@/components/ui/button";
 import { useAppData } from "@/contexts/AppDataContext";
+import { useContextPack } from "@/hooks/use-context-pack";
+import { getContextPackStatusLabel } from "@/lib/context-pack";
 import { loadLocalSettings } from "@/lib/local-settings";
 import { getRMSummary } from "@/lib/rmEngine";
 import { hasUpdaterAttention } from "@/lib/updater";
@@ -41,6 +43,7 @@ const toneClassName: Record<ExecutiveAlert["tone"], string> = {
 
 export default function HomePage() {
   const { state, rmData } = useAppData();
+  const { viewModel: contextViewModel } = useContextPack(Boolean(state || rmData));
   const preferences = loadLocalSettings().general;
   const integrationSettings = loadLocalSettings().integrations;
   const { updaterStatus } = useOperionDesktopStatus();
@@ -80,7 +83,9 @@ export default function HomePage() {
               </div>
               <div className="rounded-2xl border border-border/70 bg-background/40 p-5">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">IA preparada</p>
-                <p className="mt-3 text-lg font-semibold text-foreground">{integrationSettings.provider === "openai" ? "OpenAI pronta para configuracao" : "Provider deterministic ativo"}</p>
+                <p className="mt-3 text-lg font-semibold text-foreground">
+                  {integrationSettings.providerActive === "openai" ? "OpenAI ativo" : "Fallback local ativo"}
+                </p>
                 <p className="mt-2 text-sm text-muted-foreground">Ajuste provider, chave e modelo em Configuracoes para governanca da camada de IA.</p>
               </div>
               <div className="rounded-2xl border border-border/70 bg-background/40 p-5">
@@ -227,7 +232,7 @@ export default function HomePage() {
       title: "Interpretar com IA",
       description: "Gerar leitura assistida por persona com contexto estruturado do ciclo atual.",
       to: "/ia",
-      impact: `Provider ${integrationSettings.provider === "openai" ? "OpenAI" : "deterministico"} pronto para governanca.`,
+      impact: `Provider ${integrationSettings.providerActive === "openai" ? "OpenAI" : "fallback local"} pronto para governanca.`,
       icon: Sparkles,
     },
   ];
@@ -351,6 +356,76 @@ export default function HomePage() {
           sub={state.hasClientes ? `Top1 ${(top1Share * 100).toFixed(1)}%` : "Sem camada de clientes"}
         />
       </div>
+
+      <section className="rounded-[26px] border border-border/70 bg-card/90 p-5 shadow-[0_24px_80px_rgba(2,6,23,0.18)]">
+        <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] font-mono uppercase tracking-[0.28em] text-primary">
+                Contexto analitico
+              </span>
+              <span
+                className={`rounded-full border px-3 py-1 text-[11px] font-mono uppercase tracking-[0.24em] ${
+                  contextViewModel.status === "ready"
+                    ? "border-success/35 bg-success/10 text-success"
+                    : contextViewModel.status === "partial"
+                      ? "border-warning/35 bg-warning/10 text-warning"
+                      : "border-border/70 bg-muted/20 text-muted-foreground"
+                }`}
+              >
+                {getContextPackStatusLabel(contextViewModel.status)}
+              </span>
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-semibold tracking-tight text-foreground">{contextViewModel.friendlyName}</h2>
+              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                {contextViewModel.summary}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Button asChild className="gap-2">
+                <Link to="/ia">
+                  Abrir IA
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="gap-2">
+                <Link to="/relatorios">
+                  Abrir relatorios
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Cobertura</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{contextViewModel.coveragePercent}%</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Blocos prontos</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">
+                {contextViewModel.availableComponentsCount}/{contextViewModel.totalComponentsCount}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Lacunas</p>
+              <p className="mt-2 text-sm font-medium text-foreground">
+                {contextViewModel.inputsAvailable.filter((source) => !source.available).length || "Nenhuma"}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-4 sm:col-span-3">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Dependencias ainda ausentes</p>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                {contextViewModel.inputsAvailable
+                  .filter((source) => !source.available)
+                  .map((source) => source.label)
+                  .join(", ") || "Contexto com cobertura ampla para leituras executivas."}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <section className="metric-card space-y-4">
@@ -523,11 +598,13 @@ export default function HomePage() {
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Provider</p>
-                <p className="mt-2 text-lg font-semibold text-foreground">{integrationSettings.provider === "openai" ? "OpenAI" : "Deterministico"}</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  {integrationSettings.providerActive === "openai" ? "OpenAI" : "Deterministico"}
+                </p>
               </div>
               <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Modelo</p>
-                <p className="mt-2 text-lg font-semibold text-foreground">{integrationSettings.model}</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{integrationSettings.modelActive}</p>
               </div>
               <div className="rounded-2xl border border-border/70 bg-muted/20 p-4 md:col-span-2">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Uso recomendado</p>

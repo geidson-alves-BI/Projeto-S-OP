@@ -11,7 +11,13 @@ export const DEFAULT_LOCAL_SETTINGS: OperionLocalSettings = {
   integrations: {
     provider: "openai",
     apiKey: "",
+    apiKeyMasked: null,
+    hasApiKey: false,
     model: "gpt-4o-mini",
+    providerActive: "deterministic",
+    modelActive: "operion-deterministic-v1",
+    connectionStatus: null,
+    usingEnvironmentKey: false,
     lastSavedAt: null,
     lastTestedAt: null,
     lastStatus: null,
@@ -54,7 +60,16 @@ export function saveLocalSettings(settings: OperionLocalSettings) {
     return;
   }
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  window.localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      ...settings,
+      integrations: {
+        ...settings.integrations,
+        apiKey: "",
+      },
+    } satisfies OperionLocalSettings),
+  );
 }
 
 export function clearLocalSettings() {
@@ -63,4 +78,20 @@ export function clearLocalSettings() {
   }
 
   window.localStorage.removeItem(STORAGE_KEY);
+}
+
+export function mergeLocalIntegrationSettings(
+  integrationPatch: Partial<OperionLocalSettings["integrations"]>,
+): OperionLocalSettings {
+  const current = loadLocalSettings();
+  const nextSettings: OperionLocalSettings = {
+    ...current,
+    integrations: {
+      ...current.integrations,
+      ...integrationPatch,
+      apiKey: integrationPatch.apiKey ?? current.integrations.apiKey,
+    },
+  };
+  saveLocalSettings(nextSettings);
+  return nextSettings;
 }

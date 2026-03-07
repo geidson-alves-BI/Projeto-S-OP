@@ -290,6 +290,31 @@ def enforce_no_hallucination(output: Any, context_pack: dict[str, Any]) -> dict[
                 title = _remove_numeric_fragments(title)
             risks.append({"title": title, "severity": severity, "evidence": evidence})
 
+    opportunities: list[dict[str, Any]] = []
+    raw_opportunities = raw_output.get("opportunities")
+    if isinstance(raw_opportunities, list):
+        for idx, raw_opportunity in enumerate(raw_opportunities):
+            if not isinstance(raw_opportunity, dict):
+                continue
+            title = str(raw_opportunity.get("title") or "Oportunidade sem descricao objetiva.")
+            impact = _normalize_choice(
+                raw_opportunity.get("impact"),
+                {"low", "medium", "high"},
+                "medium",
+                data_quality_flags,
+                f"opportunities[{idx}].impact",
+            )
+            evidence = _sanitize_evidence(
+                raw_opportunity.get("evidence"),
+                context_pack,
+                data_quality_flags,
+                f"opportunities[{idx}]",
+                preferred_paths,
+            )
+            if _contains_number(title) and not evidence:
+                title = _remove_numeric_fragments(title)
+            opportunities.append({"title": title, "impact": impact, "evidence": evidence})
+
     actions: list[dict[str, Any]] = []
     raw_actions = raw_output.get("actions")
     if isinstance(raw_actions, list):
@@ -329,6 +354,10 @@ def enforce_no_hallucination(output: Any, context_pack: dict[str, Any]) -> dict[
                 }
             )
 
+    limitations = _string_list(raw_output.get("limitations"))
+    for flag in data_quality_flags:
+        _append_unique(limitations, flag)
+
     questions_to_validate = _string_list(raw_output.get("questions_to_validate"))
     disclaimer = raw_output.get("disclaimer")
     if not isinstance(disclaimer, str) or not disclaimer.strip():
@@ -345,7 +374,9 @@ def enforce_no_hallucination(output: Any, context_pack: dict[str, Any]) -> dict[
         "persona": persona,
         "executive_summary": executive_summary,
         "risks": risks,
+        "opportunities": opportunities,
         "actions": actions,
+        "limitations": limitations,
         "questions_to_validate": questions_to_validate,
         "data_quality_flags": data_quality_flags,
         "disclaimer": disclaimer.strip(),

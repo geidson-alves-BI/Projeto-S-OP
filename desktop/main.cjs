@@ -69,6 +69,7 @@ let backendLogPath = "";
 let rendererLogPath = "";
 let rendererFallbackShown = false;
 let updaterStatePath = "";
+let aiConfigPath = "";
 const DEFAULT_PERSISTED_UPDATER_STATE = {
   pendingInstallVersion: null,
   previousAppVersion: null,
@@ -93,6 +94,7 @@ function initLogging() {
   backendLogPath = path.join(logsDir, "backend.log");
   rendererLogPath = path.join(logsDir, "renderer.log");
   updaterStatePath = path.join(app.getPath("userData"), "updater-state.json");
+  aiConfigPath = path.join(app.getPath("userData"), "ai-config.json");
   appendLine(rendererLogPath, `[${new Date().toISOString()}] [info] Renderer log started`);
 }
 
@@ -611,6 +613,7 @@ async function startEmbeddedBackend() {
   const launch = resolveBackendLaunch();
   logDesktop("info", `Iniciando backend: ${launch.command} ${launch.args.join(" ")}`);
   logDesktop("info", `Log do backend: ${backendLogPath}`);
+  logDesktop("info", `AI config path: ${aiConfigPath}`);
 
   backendProcess = spawn(launch.command, launch.args, {
     cwd: launch.cwd,
@@ -618,6 +621,7 @@ async function startEmbeddedBackend() {
       ...process.env,
       OPERION_BACKEND_HOST: "127.0.0.1",
       OPERION_BACKEND_PORT: String(backendPort),
+      OPERION_AI_CONFIG_PATH: aiConfigPath,
     },
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],

@@ -1,6 +1,9 @@
 import type {
+  AIIntegrationConfigRequest,
+  AIIntegrationConfigResponse,
   AIInterpretRequest,
   AIInterpretResponse,
+  AITestConnectionResponse,
   ContextPack,
   RunSOPPipelineRequest,
   RunSOPPipelineResponse,
@@ -174,6 +177,18 @@ export async function getContextPack() {
 
 export async function interpretAI(payload: AIInterpretRequest) {
   return postJSON<AIInterpretResponse>("/ai/interpret", payload);
+}
+
+export async function getAIConfig() {
+  return getJSON<AIIntegrationConfigResponse>("/ai/config");
+}
+
+export async function saveAIConfig(payload: AIIntegrationConfigRequest) {
+  return postJSON<AIIntegrationConfigResponse>("/ai/config", payload);
+}
+
+export async function testAIConnection() {
+  return postJSON<AITestConnectionResponse>("/ai/test_connection", {});
 }
 
 export async function runSOPPipeline(payload: RunSOPPipelineRequest) {

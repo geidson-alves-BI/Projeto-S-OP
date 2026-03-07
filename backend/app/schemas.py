@@ -100,20 +100,74 @@ class AIAction(BaseModel):
     evidence: List[AIEvidence]
 
 
+class AIOpportunity(BaseModel):
+    title: str
+    impact: Literal["low", "medium", "high"]
+    evidence: List[AIEvidence]
+
+
+AIProvider = Literal["openai", "deterministic"]
+AIConnectionStatus = Literal[
+    "success",
+    "invalid_key",
+    "model_not_found",
+    "network_error",
+    "provider_not_configured",
+    "fallback_only",
+    "openai_error",
+]
+AIPersona = Literal["SUPPLY", "CFO", "CEO", "COO"]
+
+
 class AIInterpretRequest(BaseModel):
-    persona: Literal["SUPPLY", "CFO", "CEO"]
+    persona: AIPersona
     context_pack: Optional[Dict[str, Any]] = None
     language: str = "pt-BR"
 
 
 class AIInterpretResponse(BaseModel):
-    persona: Literal["SUPPLY", "CFO", "CEO"]
+    persona: AIPersona
     executive_summary: List[str]
     risks: List[AIRisk]
+    opportunities: List[AIOpportunity]
     actions: List[AIAction]
+    limitations: List[str]
     questions_to_validate: List[str]
     data_quality_flags: List[str]
     disclaimer: str
+    providerUsed: AIProvider
+    modelUsed: str
+    usedFallback: bool
+    reasonFallback: Optional[str] = None
+
+
+class AIConfigRequest(BaseModel):
+    provider: AIProvider
+    model: str = "gpt-4o-mini"
+    apiKey: Optional[str] = None
+    keepExistingKey: bool = True
+
+
+class AIConfigResponse(BaseModel):
+    provider: AIProvider
+    providerActive: AIProvider
+    model: str
+    modelActive: str
+    hasApiKey: bool
+    apiKeyMasked: Optional[str] = None
+    usingEnvironmentKey: bool = False
+    connectionStatus: Optional[AIConnectionStatus] = None
+    lastTestedAt: Optional[str] = None
+    lastTestMessage: Optional[str] = None
+
+
+class AITestConnectionResponse(BaseModel):
+    success: bool
+    status: AIConnectionStatus
+    message: str
+    providerActive: AIProvider
+    modelActive: str
+    lastTestedAt: Optional[str] = None
 
 
 class RunSOPPipelineRequest(BaseModel):

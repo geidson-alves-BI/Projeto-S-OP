@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-PersonaCode = Literal["SUPPLY", "CFO", "CEO"]
+PersonaCode = Literal["SUPPLY", "CFO", "CEO", "COO"]
 
 
 @dataclass(frozen=True)
@@ -80,6 +80,28 @@ PERSONA_PROFILES: dict[PersonaCode, PersonaProfile] = {
             "Quais sao as 3 prioridades executivas para os proximos 30 dias?",
             "Qual trade-off precisa de decisao imediata da diretoria?",
             "Qual risco pode comprometer crescimento ou servico no trimestre?",
+        ),
+    ),
+    "COO": PersonaProfile(
+        code="COO",
+        label="COO",
+        tone="operacional, integrado e orientado a estabilidade de execucao",
+        focus=(
+            "fluidez da operacao ponta a ponta",
+            "capacidade de execucao",
+            "gargalos entre demanda, producao e abastecimento",
+            "trade-offs entre produtividade e servico",
+            "disciplinas de curto prazo para estabilizacao",
+        ),
+        goals=(
+            "preservar ritmo operacional com menor friccao",
+            "priorizar acoes que reduzam risco de execucao",
+            "alinhar planejamento, abastecimento e producao em torno da mesma prioridade",
+        ),
+        guiding_questions=(
+            "Onde a operacao esta mais vulneravel a gargalos de execucao?",
+            "Quais decisoes de curto prazo estabilizam fluxo e servico?",
+            "Quais dependencias entre producao e suprimentos exigem alinhamento imediato?",
         ),
     ),
 }

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 import urllib.error
 import urllib.request
 
 from ..personas import PersonaProfile
 from .base import BaseAIProvider
+
+
+class OpenAIProviderError(RuntimeError):
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 class OpenAIProvider(BaseAIProvider):
@@ -19,18 +24,28 @@ class OpenAIProvider(BaseAIProvider):
         model: str,
         timeout_seconds: float = 20.0,
     ) -> None:
-        self.api_key = api_key
-        self.model = model
+        self.api_key = api_key.strip()
+        self.model = model.strip() or "gpt-4o-mini"
         self.timeout_seconds = timeout_seconds
         self.endpoint = "https://api.openai.com/v1/chat/completions"
 
-    @classmethod
-    def from_env(cls) -> OpenAIProvider | None:
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        if not api_key:
-            return None
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
-        return cls(api_key=api_key, model=model)
+    def test_connection(self) -> None:
+        payload = {
+            "model": self.model,
+            "temperature": 0,
+            "max_tokens": 8,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Reply with the single word ok.",
+                },
+                {
+                    "role": "user",
+                    "content": "Connection test for Operion.",
+                },
+            ],
+        }
+        self._post_json(payload)
 
     def generate(
         self,
@@ -67,11 +82,11 @@ class OpenAIProvider(BaseAIProvider):
             f"Tom: {persona.tone}. Foco: {persona_focus}. Objetivos: {persona_goals}. "
             f"Perguntas norteadoras: {persona_questions}. "
             "Regras obrigatorias: "
-            "1) Use EXCLUSIVAMENTE dados do context_pack enviado. "
+            "1) Use exclusivamente dados do context_pack enviado. "
             "2) Nao invente numeros, percentuais ou valores monetarios. "
-            "3) Nao faca recomendacoes sem evidencia no dataset. "
-            "4) Se dados insuficientes, escreva explicitamente 'dados insuficientes' e liste faltantes em questions_to_validate/data_quality_flags. "
-            "5) Em risks e actions inclua evidence com path existente no context_pack. "
+            "3) Em risks, opportunities e actions inclua evidence com path existente no context_pack. "
+            "4) Se dados insuficientes, escreva explicitamente 'dados insuficientes' e detalhe faltantes em limitations e questions_to_validate. "
+            "5) Priorize leitura executiva, impacto e proximo passo para a persona escolhida. "
             "6) Retorne apenas JSON valido, sem markdown."
         )
 
@@ -86,6 +101,13 @@ class OpenAIProvider(BaseAIProvider):
                     "evidence": [{"path": "string", "value": "any"}],
                 }
             ],
+            "opportunities": [
+                {
+                    "title": "string",
+                    "impact": "low|medium|high",
+                    "evidence": [{"path": "string", "value": "any"}],
+                }
+            ],
             "actions": [
                 {
                     "title": "string",
@@ -94,12 +116,13 @@ class OpenAIProvider(BaseAIProvider):
                     "evidence": [{"path": "string", "value": "any"}],
                 }
             ],
+            "limitations": ["string"],
             "questions_to_validate": ["string"],
             "data_quality_flags": ["string"],
             "disclaimer": "string",
         }
         return (
-            "Gere insights executivos no schema abaixo. "
+            "Gere uma leitura executiva no schema abaixo. "
             "Nao inclua campos extras.\n\n"
             f"Schema alvo:\n{json.dumps(response_schema, ensure_ascii=False)}\n\n"
             f"Context pack:\n{json.dumps(context_pack, ensure_ascii=False)}"
@@ -126,29 +149,67 @@ class OpenAIProvider(BaseAIProvider):
                 detail = exc.read().decode("utf-8", errors="ignore")
             except Exception:
                 detail = str(exc)
-            raise RuntimeError(f"OpenAI HTTP {exc.code}: {detail[:500]}") from exc
+            raise self._classify_http_error(status_code=exc.code, detail=detail) from exc
         except urllib.error.URLError as exc:
-            raise RuntimeError(f"Falha de conexao com OpenAI: {exc}") from exc
+            raise OpenAIProviderError(
+                "network_error",
+                f"Falha de conexao com OpenAI: {exc}",
+            ) from exc
         except TimeoutError as exc:
-            raise RuntimeError("Timeout na chamada OpenAI.") from exc
+            raise OpenAIProviderError("network_error", "Timeout na chamada OpenAI.") from exc
 
         try:
             parsed = json.loads(raw_response)
         except json.JSONDecodeError as exc:
-            raise RuntimeError("Resposta OpenAI nao esta em JSON.") from exc
+            raise OpenAIProviderError("openai_error", "Resposta OpenAI nao esta em JSON.") from exc
 
         if not isinstance(parsed, dict):
-            raise RuntimeError("Resposta OpenAI invalida: payload nao e objeto.")
+            raise OpenAIProviderError("openai_error", "Resposta OpenAI invalida: payload nao e objeto.")
         return parsed
+
+    def _classify_http_error(self, *, status_code: int, detail: str) -> OpenAIProviderError:
+        message = detail.strip()
+        parsed_message = message
+        parsed_code = None
+
+        try:
+            payload = json.loads(message)
+        except json.JSONDecodeError:
+            payload = None
+
+        if isinstance(payload, dict):
+            error_payload = payload.get("error", {})
+            if isinstance(error_payload, dict):
+                parsed_message = str(error_payload.get("message") or parsed_message)
+                parsed_code = str(error_payload.get("code") or "").strip() or None
+
+        lower_message = parsed_message.lower()
+        lower_code = (parsed_code or "").lower()
+
+        if status_code in {401, 403} or lower_code == "invalid_api_key" or "incorrect api key" in lower_message:
+            return OpenAIProviderError("invalid_key", "Chave OpenAI invalida ou sem permissao.")
+
+        if (
+            lower_code == "model_not_found"
+            or status_code == 404
+            or "model" in lower_message and "not found" in lower_message
+            or "does not exist" in lower_message
+        ):
+            return OpenAIProviderError("model_not_found", "Modelo OpenAI nao encontrado.")
+
+        return OpenAIProviderError(
+            "openai_error",
+            parsed_message[:500] or f"OpenAI HTTP {status_code}",
+        )
 
     def _extract_message_content(self, response_payload: dict[str, Any]) -> str:
         choices = response_payload.get("choices")
         if not isinstance(choices, list) or not choices:
-            raise RuntimeError("Resposta OpenAI sem choices.")
+            raise OpenAIProviderError("openai_error", "Resposta OpenAI sem choices.")
 
         message = choices[0].get("message", {})
         if not isinstance(message, dict):
-            raise RuntimeError("Resposta OpenAI sem message.")
+            raise OpenAIProviderError("openai_error", "Resposta OpenAI sem message.")
 
         content = message.get("content")
         if isinstance(content, str):
@@ -163,26 +224,29 @@ class OpenAIProvider(BaseAIProvider):
             if chunks:
                 return "".join(chunks)
 
-        raise RuntimeError("Resposta OpenAI sem content textual.")
+        raise OpenAIProviderError("openai_error", "Resposta OpenAI sem content textual.")
 
     def _parse_json_object(self, content: str) -> dict[str, Any]:
         text = content.strip()
         if not text:
-            raise RuntimeError("Resposta OpenAI vazia.")
+            raise OpenAIProviderError("openai_error", "Resposta OpenAI vazia.")
 
         candidate = text
         if not (candidate.startswith("{") and candidate.endswith("}")):
             start = candidate.find("{")
             end = candidate.rfind("}")
             if start == -1 or end == -1 or end <= start:
-                raise RuntimeError("Resposta OpenAI nao contem JSON valido.")
+                raise OpenAIProviderError("openai_error", "Resposta OpenAI nao contem JSON valido.")
             candidate = candidate[start : end + 1]
 
         try:
             parsed = json.loads(candidate)
         except json.JSONDecodeError as exc:
-            raise RuntimeError("Falha ao parsear JSON de saida do provider OpenAI.") from exc
+            raise OpenAIProviderError(
+                "openai_error",
+                "Falha ao parsear JSON de saida do provider OpenAI.",
+            ) from exc
 
         if not isinstance(parsed, dict):
-            raise RuntimeError("Saida OpenAI invalida: JSON precisa ser objeto.")
+            raise OpenAIProviderError("openai_error", "Saida OpenAI invalida: JSON precisa ser objeto.")
         return parsed

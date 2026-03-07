@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Activity,
@@ -21,11 +21,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DesktopUpdatePanel from "@/components/DesktopUpdatePanel";
 import PageTransition from "@/components/PageTransition";
 import { useAppData } from "@/contexts/AppDataContext";
-import { clearLocalSettings, DEFAULT_LOCAL_SETTINGS, loadLocalSettings, saveLocalSettings } from "@/lib/local-settings";
-import { health } from "@/lib/api";
+import {
+  clearLocalSettings,
+  DEFAULT_LOCAL_SETTINGS,
+  loadLocalSettings,
+  mergeLocalIntegrationSettings,
+  saveLocalSettings,
+} from "@/lib/local-settings";
+import { getAIConfig, saveAIConfig, testAIConnection } from "@/lib/api";
 import { getUpdaterPhaseLabel } from "@/lib/updater";
 import { useOperionDesktopStatus } from "@/hooks/use-operion-desktop";
 import type { OperionLocalSettings } from "@/types/desktop";
+import type { AIConnectionStatus, AIIntegrationConfigResponse } from "@/types/analytics";
 
 const TAB_ITEMS = [
   { value: "geral", label: "Geral", icon: Settings2 },
@@ -49,6 +56,27 @@ function formatTimestamp(value: string | null) {
   return new Date(value).toLocaleString("pt-BR");
 }
 
+function getConnectionStatusLabel(status: AIConnectionStatus | null) {
+  switch (status) {
+    case "success":
+      return "Conexao validada";
+    case "invalid_key":
+      return "Chave invalida";
+    case "model_not_found":
+      return "Modelo nao encontrado";
+    case "network_error":
+      return "Erro de rede";
+    case "provider_not_configured":
+      return "Provider incompleto";
+    case "fallback_only":
+      return "Fallback ativo";
+    case "openai_error":
+      return "Erro OpenAI";
+    default:
+      return "Nao testado";
+  }
+}
+
 export default function SettingsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -58,7 +86,9 @@ export default function SettingsPage() {
   const [generalStatus, setGeneralStatus] = useState<string | null>(null);
   const [integrationStatus, setIntegrationStatus] = useState<string | null>(null);
   const [integrationError, setIntegrationError] = useState<string | null>(null);
+  const [loadingIntegrationConfig, setLoadingIntegrationConfig] = useState(true);
   const [testingIntegration, setTestingIntegration] = useState(false);
+  const [savingIntegration, setSavingIntegration] = useState(false);
   const [diagnosticStatus, setDiagnosticStatus] = useState<string | null>(null);
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
   const [openLogsBusy, setOpenLogsBusy] = useState(false);
@@ -101,63 +131,136 @@ export default function SettingsPage() {
     setGeneralStatus("Preferencias locais salvas.");
   };
 
-  const handleSaveIntegrations = () => {
-    const nextSettings = {
-      ...settings,
-      integrations: {
-        ...settings.integrations,
-        lastSavedAt: new Date().toISOString(),
-        lastStatus:
-          settings.integrations.provider === "openai"
-            ? "Configuracao OpenAI salva localmente."
-            : "Configuracao deterministic salva localmente.",
-      },
-    };
+  const applyRemoteConfig = (
+    payload: AIIntegrationConfigResponse,
+    options?: { keepDraftApiKey?: boolean; lastSavedAt?: string | null; statusMessage?: string | null },
+  ) => {
+    let nextSettings: OperionLocalSettings | null = null;
 
-    setSettings(nextSettings);
-    saveLocalSettings(nextSettings);
-    setIntegrationError(null);
-    setIntegrationStatus(nextSettings.integrations.lastStatus);
+    setSettings((current) => {
+      nextSettings = {
+        ...current,
+        integrations: {
+          ...current.integrations,
+          provider: payload.provider,
+          apiKey: options?.keepDraftApiKey ? current.integrations.apiKey : "",
+          apiKeyMasked: payload.apiKeyMasked,
+          hasApiKey: payload.hasApiKey,
+          model: payload.model,
+          providerActive: payload.providerActive,
+          modelActive: payload.modelActive,
+          connectionStatus: payload.connectionStatus,
+          usingEnvironmentKey: payload.usingEnvironmentKey,
+          lastSavedAt: options?.lastSavedAt ?? current.integrations.lastSavedAt,
+          lastTestedAt: payload.lastTestedAt,
+          lastStatus: options?.statusMessage ?? payload.lastTestMessage ?? current.integrations.lastStatus,
+        },
+      };
+      return nextSettings;
+    });
+
+    if (nextSettings) {
+      mergeLocalIntegrationSettings(nextSettings.integrations);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    getAIConfig()
+      .then((payload) => {
+        if (!active) {
+          return;
+        }
+
+        const cachedSettings = loadLocalSettings().integrations;
+        const nextIntegrations: OperionLocalSettings["integrations"] = {
+          ...cachedSettings,
+          provider: payload.provider,
+          apiKey: "",
+          apiKeyMasked: payload.apiKeyMasked,
+          hasApiKey: payload.hasApiKey,
+          model: payload.model,
+          providerActive: payload.providerActive,
+          modelActive: payload.modelActive,
+          connectionStatus: payload.connectionStatus,
+          usingEnvironmentKey: payload.usingEnvironmentKey,
+          lastSavedAt: cachedSettings.lastSavedAt,
+          lastTestedAt: payload.lastTestedAt,
+          lastStatus: payload.lastTestMessage,
+        };
+        setSettings((current) => ({
+          ...current,
+          integrations: nextIntegrations,
+        }));
+        mergeLocalIntegrationSettings(nextIntegrations);
+        setIntegrationStatus(payload.lastTestMessage);
+        setIntegrationError(null);
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+        setIntegrationStatus(null);
+        setIntegrationError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (active) {
+          setLoadingIntegrationConfig(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleSaveIntegrations = async () => {
+    try {
+      setSavingIntegration(true);
+      setIntegrationError(null);
+      const savedAt = new Date().toISOString();
+      const payload = await saveAIConfig({
+        provider: settings.integrations.provider,
+        model: settings.integrations.model,
+        apiKey: settings.integrations.apiKey.trim() || null,
+        keepExistingKey: settings.integrations.apiKey.trim() === "",
+      });
+      const statusMessage =
+        payload.providerActive === "openai"
+          ? `Integracao OpenAI salva. Provider ativo: OpenAI (${payload.modelActive}).`
+          : "Modo fallback local salvo. As interpretacoes vao usar o provider deterministic.";
+      applyRemoteConfig(payload, { lastSavedAt: savedAt, statusMessage });
+      setIntegrationStatus(statusMessage);
+    } catch (error) {
+      setIntegrationStatus(null);
+      setIntegrationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingIntegration(false);
+    }
   };
 
   const handleTestIntegration = async () => {
-    if (settings.integrations.provider === "openai" && !settings.integrations.apiKey.trim()) {
-      setIntegrationStatus(null);
-      setIntegrationError("Informe a API key para validar a integracao OpenAI.");
-      return;
-    }
-
-    if (
-      settings.integrations.provider === "openai" &&
-      !settings.integrations.apiKey.trim().startsWith("sk-")
-    ) {
-      setIntegrationStatus(null);
-      setIntegrationError("A chave OpenAI parece invalida. O formato esperado comeca com sk-.");
-      return;
-    }
-
     try {
       setTestingIntegration(true);
       setIntegrationError(null);
-      const payload = await health();
-      const now = new Date().toISOString();
-      const message =
-        settings.integrations.provider === "openai"
-          ? `Backend ${payload.status}. Configuracao OpenAI validada localmente; o backend atual ainda consome OPENAI_API_KEY via ambiente para chamadas reais.`
-          : `Backend ${payload.status}. Provider deterministic pronto para uso imediato.`;
 
-      const nextSettings = {
-        ...settings,
-        integrations: {
-          ...settings.integrations,
-          lastTestedAt: now,
-          lastStatus: message,
-        },
-      };
+      const savedAt = new Date().toISOString();
+      const savedConfig = await saveAIConfig({
+        provider: settings.integrations.provider,
+        model: settings.integrations.model,
+        apiKey: settings.integrations.apiKey.trim() || null,
+        keepExistingKey: settings.integrations.apiKey.trim() === "",
+      });
+      applyRemoteConfig(savedConfig, { lastSavedAt: savedAt, keepDraftApiKey: false });
 
-      setSettings(nextSettings);
-      saveLocalSettings(nextSettings);
-      setIntegrationStatus(message);
+      const testResult = await testAIConnection();
+      const refreshedConfig = await getAIConfig();
+      applyRemoteConfig(refreshedConfig, {
+        lastSavedAt: savedAt,
+        statusMessage: testResult.message,
+      });
+      setIntegrationStatus(testResult.message);
     } catch (error) {
       setIntegrationStatus(null);
       setIntegrationError(error instanceof Error ? error.message : String(error));
@@ -206,7 +309,7 @@ export default function SettingsPage() {
   const handleClearLocalPreferences = () => {
     clearLocalSettings();
     setSettings(DEFAULT_LOCAL_SETTINGS);
-    setGeneralStatus("Preferencias e integracoes locais foram limpas.");
+    setGeneralStatus("Preferencias locais foram limpas. A configuracao persistida do backend foi preservada.");
     setIntegrationStatus(null);
     setIntegrationError(null);
   };
@@ -435,8 +538,8 @@ export default function SettingsPage() {
                 <h2 className="text-xl font-semibold text-foreground">Integracoes</h2>
               </div>
               <p className="text-sm leading-6 text-muted-foreground">
-                Esta camada prepara o uso operacional da IA. As configuracoes ficam salvas localmente para o desktop,
-                enquanto o backend atual ainda usa variaveis de ambiente para chamadas reais ao provider OpenAI.
+                Esta camada conecta a IA real do Operion. Provider, modelo e API key ficam persistidos no app e o
+                backend usa essa configuracao para interpretar o Contexto Executivo Consolidado.
               </p>
 
               <div className="grid gap-4">
@@ -469,7 +572,7 @@ export default function SettingsPage() {
                   <Input
                     type="password"
                     value={settings.integrations.apiKey}
-                    placeholder="sk-..."
+                    placeholder={settings.integrations.apiKeyMasked ?? "sk-..."}
                     onChange={(event) =>
                       setSettings((current) => ({
                         ...current,
@@ -480,6 +583,13 @@ export default function SettingsPage() {
                       }))
                     }
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {settings.integrations.hasApiKey
+                      ? `Chave salva localmente no app: ${settings.integrations.apiKeyMasked}${
+                          settings.integrations.usingEnvironmentKey ? " (origem ambiente)" : ""
+                        }`
+                      : "Nenhuma chave salva. Informe uma nova chave para ativar OpenAI."}
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -500,16 +610,22 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-3">
-                  <Button className="gap-2" onClick={handleSaveIntegrations}>
+                  <Button className="gap-2" onClick={handleSaveIntegrations} disabled={savingIntegration || loadingIntegrationConfig}>
                     <KeyRound className="h-4 w-4" />
-                    Salvar
+                    {savingIntegration ? "Salvando..." : "Salvar"}
                   </Button>
-                  <Button variant="outline" className="gap-2" onClick={handleTestIntegration} disabled={testingIntegration}>
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={handleTestIntegration}
+                    disabled={testingIntegration || savingIntegration || loadingIntegrationConfig}
+                  >
                     <Sparkles className="h-4 w-4" />
                     {testingIntegration ? "Testando..." : "Testar conexao"}
                   </Button>
                 </div>
 
+                {loadingIntegrationConfig && <p className="text-xs font-mono text-muted-foreground">Carregando configuracao real do backend...</p>}
                 {integrationStatus && <p className="text-xs font-mono text-muted-foreground">{integrationStatus}</p>}
                 {integrationError && <p className="text-xs font-mono text-destructive">{integrationError}</p>}
               </div>
@@ -524,11 +640,19 @@ export default function SettingsPage() {
               <div className="grid gap-3">
                 <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
                   <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Provider configurado</p>
-                  <p className="mt-2 text-lg font-semibold text-foreground">{settings.integrations.provider === "openai" ? "OpenAI" : "Deterministico"}</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">
+                    {settings.integrations.provider === "openai" ? "OpenAI" : "Deterministico"}
+                  </p>
                 </div>
                 <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Modelo salvo</p>
-                  <p className="mt-2 text-lg font-semibold text-foreground">{settings.integrations.model || "Nao definido"}</p>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Provider ativo</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">
+                    {settings.integrations.providerActive === "openai" ? "OpenAI ativo" : "Fallback local ativo"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Modelo ativo</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">{settings.integrations.modelActive || "Nao definido"}</p>
                 </div>
                 <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
                   <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Ultima gravacao</p>
@@ -538,13 +662,17 @@ export default function SettingsPage() {
                   <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Ultimo teste</p>
                   <p className="mt-2 text-sm text-foreground">{formatTimestamp(settings.integrations.lastTestedAt)}</p>
                 </div>
+                <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Status da conexao</p>
+                  <p className="mt-2 text-sm text-foreground">{getConnectionStatusLabel(settings.integrations.connectionStatus)}</p>
+                </div>
               </div>
 
               <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4 text-sm text-foreground">
                 <p className="font-medium">Status da integracao</p>
                 <p className="mt-2 text-muted-foreground">
                   {settings.integrations.lastStatus ??
-                    "Nenhum teste recente. Salve a configuracao e valide a conectividade do backend."}
+                    "Nenhum teste recente. Salve a configuracao e valide a conectividade real do provider."}
                 </p>
               </div>
 
