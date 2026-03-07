@@ -40,6 +40,7 @@ type OperionUpdaterBridge = {
 type DesktopBridge = {
   getVersion: () => Promise<string>;
   openLogs: () => Promise<void>;
+  installNow: () => Promise<OperionUpdaterActionResult>;
 };
 
 declare global {

@@ -50,5 +50,6 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     getVersion: () => ipcRenderer.invoke("app:getVersion"),
     openLogs: () => ipcRenderer.invoke("app:openLogs"),
+    installNow: () => ipcRenderer.invoke("install-now"),
   }),
 );

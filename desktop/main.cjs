@@ -893,7 +893,7 @@ function checkForUpdatesSafe(trigger = "auto") {
 
 function applyUpdateNow() {
   if (!updateState.installReady) {
-    return;
+    return false;
   }
 
   try {
@@ -908,10 +908,14 @@ function applyUpdateNow() {
     });
     isQuitting = true;
     markApplyingUpdateOnQuit("manual-install");
-    logDesktop("info", "quitAndInstall called");
-    autoUpdater.quitAndInstall();
+    logDesktop("info", "quitAndInstall chamado manualmente");
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.quitAndInstall(false, true);
+    return true;
   } catch (error) {
     logDesktop("error", `Falha ao aplicar update: ${error.message}`);
+    return false;
   }
 }
 
@@ -1045,6 +1049,7 @@ function configureAutoUpdater() {
 
 function registerUpdaterIpcHandlers() {
   const channels = [
+    "install-now",
     "operion-updater:get-status",
     "operion-updater:check-now",
     "operion-updater:install-now",
@@ -1057,6 +1062,23 @@ function registerUpdaterIpcHandlers() {
   }
 
   ipcMain.handle("operion-updater:get-status", async () => getUpdateStatePayload());
+
+  ipcMain.handle("install-now", async () => {
+    if (!updateState.installReady) {
+      return {
+        ok: false,
+        message: "Nenhuma atualizacao baixada para instalar.",
+      };
+    }
+
+    const started = applyUpdateNow();
+    return {
+      ok: started,
+      message: started
+        ? "Reiniciando para aplicar atualizacao."
+        : "Falha ao iniciar a instalacao da atualizacao.",
+    };
+  });
 
   ipcMain.handle("operion-updater:check-now", async () => {
     checkForUpdatesSafe("manual");
@@ -1074,10 +1096,12 @@ function registerUpdaterIpcHandlers() {
       };
     }
 
-    applyUpdateNow();
+    const started = applyUpdateNow();
     return {
-      ok: true,
-      message: "Reiniciando para aplicar atualizacao.",
+      ok: started,
+      message: started
+        ? "Reiniciando para aplicar atualizacao."
+        : "Falha ao iniciar a instalacao da atualizacao.",
     };
   });
 

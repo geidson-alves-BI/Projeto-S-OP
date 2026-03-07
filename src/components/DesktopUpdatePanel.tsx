@@ -55,6 +55,14 @@ function getUpdaterBridge() {
   return window.__OPERION_UPDATER__;
 }
 
+function getDesktopBridge() {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  return window.desktop;
+}
+
 function getPhaseLabel(status: UpdatePanelStatus) {
   if (status.installedMessage) return "Atualizacao instalada";
   if (status.installReady) return "Pronta para instalar";
@@ -76,6 +84,7 @@ function getPhaseAccent(status: UpdatePanelStatus) {
 
 export default function DesktopUpdatePanel() {
   const updater = getUpdaterBridge();
+  const desktop = getDesktopBridge();
   const [status, setStatus] = useState<UpdatePanelStatus>(DEFAULT_STATUS);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -137,9 +146,14 @@ export default function DesktopUpdatePanel() {
   };
 
   const installNow = async () => {
+    if (!desktop?.installNow) {
+      setActionMessage("Instalacao manual disponivel apenas no app desktop.");
+      return;
+    }
+
     try {
       setActionBusy(true);
-      const result = await updater.installNow();
+      const result = await desktop.installNow();
       setActionMessage(result.message);
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : String(error));
