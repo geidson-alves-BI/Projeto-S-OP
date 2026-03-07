@@ -12,6 +12,8 @@ import RMUploadPage from "@/pages/RMUploadPage";
 import RMSlaPage from "@/pages/RMSlaPage";
 import FinanceiroPage from "@/pages/FinanceiroPage";
 import RelatoriosPage from "@/pages/RelatoriosPage";
+import AIPage from "@/pages/AIPage";
+import SettingsPage from "@/pages/SettingsPage";
 import NotFound from "@/pages/NotFound";
 
 const RouterComponent =
@@ -36,6 +38,8 @@ export default function App() {
             <Route path="rm-sla" element={<RMSlaPage />} />
             <Route path="financeiro" element={<FinanceiroPage />} />
             <Route path="relatorios" element={<RelatoriosPage />} />
+            <Route path="ia" element={<AIPage />} />
+            <Route path="configuracoes" element={<SettingsPage />} />
             <Route path="index" element={<Navigate to="/" replace />} />
           </Route>
           <Route path="*" element={<NotFound />} />

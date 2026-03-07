@@ -1,6 +1,5 @@
 import { Outlet } from "react-router-dom";
 import TopNav from "./TopNav";
-import DesktopUpdatePanel from "./DesktopUpdatePanel";
 
 export default function Layout() {
   return (
@@ -9,7 +8,6 @@ export default function Layout() {
       <main className="flex-1 relative">
         <Outlet />
       </main>
-      <DesktopUpdatePanel />
     </div>
   );
 }

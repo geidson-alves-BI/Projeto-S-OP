@@ -1,264 +1,182 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { RefreshCcw, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
+import { getUpdaterPhaseAccent, getUpdaterPhaseLabel } from "@/lib/updater";
+import { useOperionDesktopStatus } from "@/hooks/use-operion-desktop";
 
-type UpdatePanelStatus = {
-  phase: string;
-  status: string;
-  message: string;
-  percent: number;
-  progressPercent: number;
-  version: string | null;
-  currentVersion: string | null;
-  availableVersion: string | null;
-  available: boolean;
-  downloading: boolean;
-  downloaded: boolean;
-  installReady: boolean;
-  updateDownloaded: boolean;
-  installUpdateOnQuit: boolean;
-  willInstallOnQuit: boolean;
-  appVersion: string;
-  isPackaged: boolean;
-  lastError: string | null;
-  installedVersion: string | null;
-  installedMessage: string | null;
+type DesktopUpdatePanelProps = {
+  className?: string;
 };
 
-const DEFAULT_STATUS: UpdatePanelStatus = {
-  phase: "idle",
-  status: "idle",
-  message: "Sem verificacao de atualizacao",
-  percent: 0,
-  progressPercent: 0,
-  version: null,
-  currentVersion: null,
-  availableVersion: null,
-  available: false,
-  downloading: false,
-  downloaded: false,
-  installReady: false,
-  updateDownloaded: false,
-  installUpdateOnQuit: true,
-  willInstallOnQuit: true,
-  appVersion: "",
-  isPackaged: false,
-  lastError: null,
-  installedVersion: null,
-  installedMessage: null,
-};
-
-function getUpdaterBridge() {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-
-  return window.__OPERION_UPDATER__;
-}
-
-function getDesktopBridge() {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-
-  return window.desktop;
-}
-
-function getPhaseLabel(status: UpdatePanelStatus) {
-  if (status.installedMessage) return "Atualizacao instalada";
-  if (status.installReady) return "Pronta para instalar";
-  if (status.phase === "checking") return "Verificando atualizacao";
-  if (status.downloading) return "Baixando atualizacao";
-  if (status.available) return "Atualizacao disponivel";
-  if (status.phase === "up-to-date") return "Sem atualizacoes";
-  if (status.phase === "error") return "Falha no updater";
-  if (status.phase === "disabled") return "Updater indisponivel";
-  return "Updater";
-}
-
-function getPhaseAccent(status: UpdatePanelStatus) {
-  if (status.installedMessage || status.installReady) return "border-success/40 bg-success/10";
-  if (status.downloading || status.available) return "border-warning/40 bg-warning/10";
-  if (status.phase === "error") return "border-destructive/40 bg-destructive/10";
-  return "border-border bg-muted/20";
-}
-
-export default function DesktopUpdatePanel() {
-  const updater = getUpdaterBridge();
-  const desktop = getDesktopBridge();
-  const [status, setStatus] = useState<UpdatePanelStatus>(DEFAULT_STATUS);
-  const [actionBusy, setActionBusy] = useState(false);
+export default function DesktopUpdatePanel({ className }: DesktopUpdatePanelProps) {
+  const {
+    updaterStatus: status,
+    progressValue,
+    currentVersion,
+    availableVersion,
+    desktopBridge,
+    updaterBridge,
+  } = useOperionDesktopStatus();
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!updater) {
-      return;
-    }
-
-    let active = true;
-    let unsubscribe = () => {};
-
-    updater
-      .getStatus()
-      .then((payload) => {
-        if (active) {
-          setStatus(payload);
-        }
-      })
-      .catch((error) => {
-        if (active) {
-          setActionMessage(error instanceof Error ? error.message : String(error));
-        }
-      });
-
-    unsubscribe = updater.onStatus((payload) => {
-      if (active) {
-        setStatus(payload);
-      }
-    });
-
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, [updater]);
-
-  if (!updater || !status.isPackaged) {
-    return null;
-  }
-
-  const progressValue = Math.max(
-    0,
-    Math.min(100, Math.round(status.progressPercent ?? status.percent ?? 0)),
-  );
-  const currentVersion = status.currentVersion ?? status.appVersion ?? "n/a";
-  const availableVersion = status.availableVersion ?? status.version ?? "n/a";
-
-  const checkNow = async () => {
+  const runAction = async (actionKey: string, handler: () => Promise<{ message?: string }>) => {
     try {
-      setActionBusy(true);
-      const result = await updater.checkNow();
-      setActionMessage(result.message);
+      setActionBusy(actionKey);
+      const result = await handler();
+      setActionMessage(result.message ?? "Operacao concluida.");
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      setActionBusy(false);
+      setActionBusy(null);
     }
   };
 
+  const checkNow = async () => {
+    if (!updaterBridge?.checkNow) {
+      setActionMessage("Verificacao de atualizacao disponivel apenas no app desktop.");
+      return;
+    }
+
+    await runAction("check", () => updaterBridge.checkNow());
+  };
+
   const installNow = async () => {
-    if (!desktop?.installNow) {
+    if (!desktopBridge?.installNow) {
       setActionMessage("Instalacao manual disponivel apenas no app desktop.");
       return;
     }
 
-    try {
-      setActionBusy(true);
-      const result = await desktop.installNow();
-      setActionMessage(result.message);
-    } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setActionBusy(false);
-    }
+    await runAction("install", () => desktopBridge.installNow());
   };
 
+  const toggleInstallOnQuit = async (enabled: boolean) => {
+    if (!updaterBridge?.setInstallOnQuit) {
+      setActionMessage("Ajuste de instalacao ao fechar disponivel apenas no app desktop.");
+      return;
+    }
+
+    await runAction("toggle", () => updaterBridge.setInstallOnQuit(enabled));
+  };
+
+  if (!updaterBridge || !status.isPackaged) {
+    return (
+      <section className={cn("metric-card space-y-3", className)}>
+        <div className="space-y-1">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Atualizacoes</p>
+          <h3 className="text-lg font-semibold text-foreground">Updater indisponivel neste ambiente</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          O fluxo de atualizacao aparece apenas na versao desktop instalada do Operion.
+        </p>
+      </section>
+    );
+  }
+
   return (
-    <aside className="fixed bottom-4 right-4 z-50 w-[380px] rounded-lg border border-border bg-card/95 p-3 shadow-xl backdrop-blur">
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-mono font-semibold text-foreground">Atualizacoes do Operion</p>
-          <div className="flex items-center gap-2">
-            {status.installReady && (
-              <span className="rounded border border-success/40 bg-success/10 px-2 py-1 text-[10px] font-mono uppercase text-success">
-                Pronto
-              </span>
-            )}
-            <span className={`rounded border px-2 py-1 text-[10px] font-mono uppercase ${getPhaseAccent(status)}`}>
-              {getPhaseLabel(status)}
+    <section className={cn("metric-card space-y-5", className)}>
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="space-y-1">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Atualizacoes</p>
+          <h3 className="text-lg font-semibold text-foreground">Gestao de versoes do aplicativo</h3>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {status.installReady && (
+            <span className="rounded-full border border-success/40 bg-success/10 px-3 py-1 text-[11px] font-mono uppercase tracking-[0.24em] text-success">
+              Pronto para instalar
             </span>
-          </div>
-        </div>
-
-        <div className="grid gap-2 text-xs font-mono">
-          <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Versao atual instalada:</span> {currentVersion}
-          </div>
-          <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Ultima versao encontrada:</span> {availableVersion}
-          </div>
-          <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Status atual:</span> {status.message}
-          </div>
-          <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Progresso do download:</span> {progressValue}%
-          </div>
-          <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Instalar ao fechar:</span> {status.willInstallOnQuit ? "Ativo" : "Inativo"}
-          </div>
-        </div>
-
-        {status.installedMessage && (
-          <div className="rounded border border-success/40 bg-success/10 px-3 py-2">
-            <p className="text-xs font-mono font-semibold text-success">{status.installedMessage}</p>
-          </div>
-        )}
-
-        {status.available && !status.installReady && (
-          <div className="rounded border border-warning/40 bg-warning/10 px-3 py-2">
-            <p className="text-xs font-mono font-semibold text-warning">Atualizacao disponivel</p>
-            <p className="mt-1 text-xs font-mono text-foreground">{status.message}</p>
-          </div>
-        )}
-
-        {(status.downloading || status.installReady) && (
-          <div className="rounded border border-border bg-muted/20 px-3 py-3">
-            <div className="flex items-center justify-between gap-2 text-xs font-mono">
-              <span className="text-foreground">
-                {status.installReady ? "Download concluido" : "Baixando atualizacao..."}
-              </span>
-              <span className={status.installReady ? "text-success" : "text-primary"}>{progressValue}%</span>
-            </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-border/60">
-              <div
-                className={`h-full rounded-full transition-all ${status.installReady ? "bg-success" : "bg-primary"}`}
-                style={{ width: `${progressValue}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {status.installReady && (
-          <div className="rounded border border-success/40 bg-success/10 px-3 py-3">
-            <p className="text-xs font-mono font-semibold text-success">
-              Atualizacao baixada. Feche o app para instalar.
-            </p>
-            <p className="mt-1 text-xs font-mono text-foreground">
-              O Operion vai aplicar a nova versao ao fechar. Se preferir, use o botao manual abaixo.
-            </p>
-          </div>
-        )}
-
-        {!status.available && !status.downloading && !status.installReady && !status.installedMessage && (
-          <p className="text-sm font-mono text-foreground">{status.message}</p>
-        )}
-
-        {status.lastError && <p className="text-xs font-mono text-destructive">{status.lastError}</p>}
-        {actionMessage && <p className="text-xs font-mono text-muted-foreground">{actionMessage}</p>}
-
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" className="font-mono text-xs" onClick={checkNow} disabled={actionBusy}>
-            Verificar atualizacoes agora
-          </Button>
-          <Button
-            size="sm"
-            className="font-mono text-xs"
-            onClick={installNow}
-            disabled={actionBusy || !status.installReady}
-          >
-            Reiniciar e atualizar
-          </Button>
+          )}
+          <span className={`rounded-full border px-3 py-1 text-[11px] font-mono uppercase tracking-[0.24em] ${getUpdaterPhaseAccent(status)}`}>
+            {getUpdaterPhaseLabel(status)}
+          </span>
         </div>
       </div>
-    </aside>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Versao atual</p>
+          <p className="mt-2 text-lg font-semibold text-foreground">{currentVersion}</p>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Ultima versao</p>
+          <p className="mt-2 text-lg font-semibold text-foreground">{availableVersion}</p>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Status atual</p>
+          <p className="mt-2 text-sm text-foreground">{status.message}</p>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Progresso</p>
+          <p className="mt-2 text-lg font-semibold text-foreground">{progressValue}%</p>
+        </div>
+      </div>
+
+      {(status.downloading || status.installReady) && (
+        <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+          <div className="flex items-center justify-between gap-2 text-sm">
+            <span className="text-foreground">
+              {status.installReady ? "Download concluido" : "Baixando atualizacao..."}
+            </span>
+            <span className={status.installReady ? "text-success" : "text-primary"}>{progressValue}%</span>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-border/70">
+            <div
+              className={`h-full rounded-full transition-all ${status.installReady ? "bg-success" : "bg-primary"}`}
+              style={{ width: `${progressValue}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-start justify-between gap-4 rounded-2xl border border-border/70 bg-background/45 p-4">
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">Instalar ao fechar</p>
+          <p className="text-sm text-muted-foreground">
+            Quando a atualizacao estiver pronta, o Operion aplica a nova versao automaticamente ao encerrar.
+          </p>
+        </div>
+        <Switch
+          checked={status.willInstallOnQuit}
+          onCheckedChange={toggleInstallOnQuit}
+          disabled={actionBusy === "toggle"}
+        />
+      </div>
+
+      {status.installReady && (
+        <div className="rounded-2xl border border-success/40 bg-success/10 px-4 py-3">
+          <p className="text-sm font-semibold text-success">Atualizacao baixada. Feche o app para instalar.</p>
+          <p className="mt-1 text-sm text-foreground">
+            Se preferir, use o reinicio manual para aplicar a nova versao imediatamente.
+          </p>
+        </div>
+      )}
+
+      {status.installedMessage && (
+        <div className="rounded-2xl border border-success/40 bg-success/10 px-4 py-3 text-sm text-success">
+          {status.installedMessage}
+        </div>
+      )}
+
+      {status.lastError && (
+        <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {status.lastError}
+        </div>
+      )}
+
+      {actionMessage && <p className="text-xs font-mono text-muted-foreground">{actionMessage}</p>}
+
+      <div className="flex flex-wrap gap-3">
+        <Button variant="outline" className="gap-2" onClick={checkNow} disabled={actionBusy !== null}>
+          <RefreshCcw className="h-4 w-4" />
+          Verificar agora
+        </Button>
+        <Button className="gap-2" onClick={installNow} disabled={actionBusy !== null || !status.installReady}>
+          <RotateCcw className="h-4 w-4" />
+          Reiniciar e atualizar
+        </Button>
+      </div>
+    </section>
   );
 }

@@ -1,662 +1,544 @@
-import { useEffect, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { BarChart3, TrendingUp, Package, FileSpreadsheet } from "lucide-react";
-import PageTransition from "@/components/PageTransition";
-import { useAppData } from "@/contexts/AppDataContext";
+import { Link } from "react-router-dom";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Bot,
+  BriefcaseBusiness,
+  Factory,
+  FileText,
+  Package,
+  Settings2,
+  ShieldAlert,
+  Sparkles,
+  Target,
+  TrendingUp,
+} from "lucide-react";
 import MetricCard from "@/components/MetricCard";
+import PageTransition from "@/components/PageTransition";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { API_URL, getContextPack, interpretAI, runSOPPipeline } from "@/lib/api";
-import type {
-  AIInterpretResponse,
-  AIPersona,
-  ContextPack,
-  RunSOPPipelineResponse,
-} from "@/types/analytics";
+import { useAppData } from "@/contexts/AppDataContext";
+import { loadLocalSettings } from "@/lib/local-settings";
+import { getRMSummary } from "@/lib/rmEngine";
+import { hasUpdaterAttention } from "@/lib/updater";
+import { useOperionDesktopStatus } from "@/hooks/use-operion-desktop";
 
-const PERSONA_LABEL: Record<AIPersona, string> = {
-  SUPPLY: "Diretor Supply Chain",
-  CFO: "CFO",
-  CEO: "CEO",
+type ExecutiveAlert = {
+  id: string;
+  title: string;
+  description: string;
+  impact: string;
+  action: string;
+  to: string;
+  tone: "high" | "medium" | "low";
+  priority: number;
 };
 
-const SEVERITY_STYLE: Record<AIInterpretResponse["risks"][number]["severity"], string> = {
-  low: "text-success",
-  medium: "text-warning",
-  high: "text-destructive",
+const toneClassName: Record<ExecutiveAlert["tone"], string> = {
+  high: "border-destructive/35 bg-destructive/10 text-destructive",
+  medium: "border-warning/35 bg-warning/10 text-warning",
+  low: "border-primary/25 bg-primary/10 text-primary",
 };
-
-const IMPACT_STYLE: Record<AIInterpretResponse["actions"][number]["impact"], string> = {
-  low: "text-success",
-  medium: "text-warning",
-  high: "text-destructive",
-};
-
-type UpdaterStatusSnapshot = {
-  phase?: string;
-  status?: string;
-  message?: string;
-  percent?: number;
-  progressPercent?: number;
-  version?: string | null;
-  currentVersion?: string | null;
-  availableVersion?: string | null;
-  installReady?: boolean;
-  willInstallOnQuit?: boolean;
-  lastError?: string | null;
-  installedVersion?: string | null;
-  installedMessage?: string | null;
-};
-
-function formatEvidenceValue(value: unknown): string {
-  if (value === null || value === undefined) return "n/a";
-  if (typeof value === "number") return value.toLocaleString("pt-BR");
-  if (typeof value === "string") return value;
-  if (typeof value === "boolean") return value ? "true" : "false";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function buildMarkdownReport(insights: AIInterpretResponse): string {
-  const lines: string[] = [];
-  lines.push(`# Relatorio IA - ${PERSONA_LABEL[insights.persona]}`);
-  lines.push("");
-  lines.push("## Executive Summary");
-  insights.executive_summary.forEach(item => lines.push(`- ${item}`));
-  lines.push("");
-  lines.push("## Risks");
-  insights.risks.forEach(risk => {
-    lines.push(`- ${risk.title} [${risk.severity}]`);
-    risk.evidence.forEach(ev => lines.push(`  - evidence: ${ev.path} = ${formatEvidenceValue(ev.value)}`));
-  });
-  lines.push("");
-  lines.push("## Actions");
-  insights.actions.forEach(action => {
-    lines.push(`- ${action.title} [${action.horizon} | impact ${action.impact}]`);
-    action.evidence.forEach(ev => lines.push(`  - evidence: ${ev.path} = ${formatEvidenceValue(ev.value)}`));
-  });
-  lines.push("");
-  lines.push("## Questions to Validate");
-  insights.questions_to_validate.forEach(item => lines.push(`- ${item}`));
-  lines.push("");
-  lines.push("## Data Quality Flags");
-  insights.data_quality_flags.forEach(item => lines.push(`- ${item}`));
-  lines.push("");
-  lines.push("## Disclaimer");
-  lines.push(insights.disclaimer);
-  return lines.join("\n");
-}
-
-function formatPipelineSummary(summary: RunSOPPipelineResponse["execution_summary"]): string {
-  const executed = summary.executed_steps.length > 0 ? summary.executed_steps.join(", ") : "nenhum";
-  const skipped = summary.skipped_steps.length > 0 ? summary.skipped_steps.join(" | ") : "nenhum";
-  return `Executado: ${executed}. Pulado: ${skipped}.`;
-}
 
 export default function HomePage() {
-  const { state } = useAppData();
-  const navigate = useNavigate();
+  const { state, rmData } = useAppData();
+  const preferences = loadLocalSettings().general;
+  const integrationSettings = loadLocalSettings().integrations;
+  const { updaterStatus } = useOperionDesktopStatus();
 
-  const [contextPack, setContextPack] = useState<ContextPack | null>(null);
-  const [contextPackLoading, setContextPackLoading] = useState(false);
-  const [contextPackError, setContextPackError] = useState<string | null>(null);
-  const [pipelineLoading, setPipelineLoading] = useState(false);
-  const [pipelineStatus, setPipelineStatus] = useState<string | null>(null);
-  const [copyContextStatus, setCopyContextStatus] = useState<string | null>(null);
+  if (!state) {
+    return (
+      <PageTransition className="p-6 space-y-6">
+        <section className="relative overflow-hidden rounded-[32px] border border-border/70 bg-card/90 px-6 py-8 shadow-[0_24px_80px_rgba(2,6,23,0.35)]">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-90"
+            style={{
+              background:
+                "radial-gradient(circle at top left, rgba(14,165,233,0.2), transparent 34%), radial-gradient(circle at 85% 20%, rgba(16,185,129,0.14), transparent 26%), linear-gradient(140deg, rgba(15,23,42,0.24), rgba(2,6,23,0.65))",
+            }}
+          />
+          <div className="relative mx-auto max-w-4xl space-y-6">
+            <div className="space-y-4">
+              <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] font-mono uppercase tracking-[0.28em] text-primary">
+                Operion executive home
+              </span>
+              <div className="space-y-3">
+                <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-foreground">
+                  Uma camada de decisao pronta para Supply, CFO, CEO e COO
+                </h1>
+                <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                  Carregue as bases de operacao para transformar dados em prioridades, impacto financeiro e acoes
+                  recomendadas. Atualizacoes, diagnosticos e integracoes ficam fora desta tela para manter foco.
+                </p>
+              </div>
+            </div>
 
-  const [persona, setPersona] = useState<AIPersona>("SUPPLY");
-  const [insightsLoading, setInsightsLoading] = useState(false);
-  const [insightsError, setInsightsError] = useState<string | null>(null);
-  const [insights, setInsights] = useState<AIInterpretResponse | null>(null);
-  const [copyReportStatus, setCopyReportStatus] = useState<string | null>(null);
-  const [appVersion, setAppVersion] = useState<string>("n/a");
-  const [updaterSnapshot, setUpdaterSnapshot] = useState<UpdaterStatusSnapshot>({
-    phase: "idle",
-    status: "idle",
-    message: "Sem verificacao de atualizacao",
-    percent: 0,
-    progressPercent: 0,
-    version: null,
-    currentVersion: null,
-    availableVersion: null,
-    installReady: false,
-    willInstallOnQuit: true,
-    lastError: null,
-    installedVersion: null,
-    installedMessage: null,
-  });
-  const [diagnosticStatus, setDiagnosticStatus] = useState<string | null>(null);
-  const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
-  const [openLogsBusy, setOpenLogsBusy] = useState(false);
-  const desktopBridge = typeof window !== "undefined" ? window.desktop : undefined;
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-2xl border border-border/70 bg-background/40 p-5">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Camada executiva</p>
+                <p className="mt-3 text-lg font-semibold text-foreground">Resumo, impacto e acao</p>
+                <p className="mt-2 text-sm text-muted-foreground">A Home responde o que esta acontecendo, o que exige atencao e o que fazer agora.</p>
+              </div>
+              <div className="rounded-2xl border border-border/70 bg-background/40 p-5">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">IA preparada</p>
+                <p className="mt-3 text-lg font-semibold text-foreground">{integrationSettings.provider === "openai" ? "OpenAI pronta para configuracao" : "Provider deterministic ativo"}</p>
+                <p className="mt-2 text-sm text-muted-foreground">Ajuste provider, chave e modelo em Configuracoes para governanca da camada de IA.</p>
+              </div>
+              <div className="rounded-2xl border border-border/70 bg-background/40 p-5">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Operacao</p>
+                <p className="mt-3 text-lg font-semibold text-foreground">Nova carga necessaria</p>
+                <p className="mt-2 text-sm text-muted-foreground">Importe dados de producao, clientes e materia-prima para liberar a visao executiva.</p>
+              </div>
+            </div>
 
-  useEffect(() => {
-    if (!state) navigate("/upload");
-  }, [state, navigate]);
+            <div className="flex flex-wrap gap-3">
+              <Button asChild className="gap-2">
+                <Link to="/upload">
+                  Carregar bases
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="gap-2">
+                <Link to="/configuracoes?tab=integracoes">
+                  Abrir configuracoes
+                  <Settings2 className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="gap-2">
+                <Link to="/ia">
+                  Ver camada de IA
+                  <Bot className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+      </PageTransition>
+    );
+  }
 
-  useEffect(() => {
-    let active = true;
+  const totalProducts = state.products.length;
+  const volumeTotal = state.products.reduce((sum, product) => sum + product.volumeAnual, 0);
+  const countA = state.products.filter((product) => product.classeABC === "A").length;
+  const countMTS = state.products.filter((product) => (product.estrategiaFinal ?? product.estrategiaBase).includes("MTS")).length;
+  const classAShare = totalProducts > 0 ? countA / totalProducts : 0;
+  const mtsShare = totalProducts > 0 ? countMTS / totalProducts : 0;
+  const top1Share = state.portfolioConc?.top1SharePortfolio ?? 0;
+  const hhiPortfolio = state.portfolioConc?.hhiPortfolio ?? null;
+  const rmSummary = rmData ? getRMSummary(rmData, 95) : null;
 
-    if (desktopBridge?.getVersion) {
-      desktopBridge
-        .getVersion()
-        .then(version => {
-          if (active) {
-            setAppVersion(version);
-          }
-        })
-        .catch(error => {
-          if (active) {
-            setAppVersion("n/a");
-            setDiagnosticError(error instanceof Error ? error.message : String(error));
-          }
-        });
-    } else {
-      setAppVersion("web");
-    }
+  const alerts: ExecutiveAlert[] = [
+    ...(top1Share >= 0.35
+      ? [
+          {
+            id: "portfolio-concentration",
+            title: "Concentracao elevada no portfolio",
+            description: `O principal cliente concentra ${(top1Share * 100).toFixed(1)}% do portfolio monitorado.`,
+            impact: "Maior exposicao operacional e financeira caso haja oscilacao de demanda.",
+            action: "Validar contingencia comercial e revisar buffers.",
+            to: "/relatorios",
+            tone: "high" as const,
+            priority: 100,
+          },
+        ]
+      : []),
+    ...(!state.hasClientes
+      ? [
+          {
+            id: "client-layer",
+            title: "Camada de clientes ainda nao integrada",
+            description: "A leitura executiva esta sem concentracao por cliente e perde sensibilidade comercial.",
+            impact: "Reduz precisao da priorizacao para Supply e diretoria.",
+            action: "Complementar a carga de clientes na proxima rodada.",
+            to: "/demanda",
+            tone: "medium" as const,
+            priority: 92,
+          },
+        ]
+      : []),
+    ...(mtsShare >= 0.25
+      ? [
+          {
+            id: "mts-policy",
+            title: "Politica MTS requer calibracao",
+            description: `${countMTS} itens surgem como candidatos MTS no ciclo atual.`,
+            impact: "A decisao de politica pode alterar estoque, nivel de servico e investimento.",
+            action: "Revisar mix MTS/MTO com foco em itens A e lideres de consumo.",
+            to: "/mts",
+            tone: "medium" as const,
+            priority: 88,
+          },
+        ]
+      : []),
+    ...(rmSummary && rmSummary.belowSLA > 0
+      ? [
+          {
+            id: "rm-sla",
+            title: "Materia-prima abaixo do SLA",
+            description: `${rmSummary.belowSLA} materiais estao abaixo do alvo de cobertura no corte de 95%.`,
+            impact: "Risco direto para continuidade operacional e custo de reposicao emergencial.",
+            action: "Priorizar fornecedores e investimento de recomposicao.",
+            to: "/rm-sla",
+            tone: "high" as const,
+            priority: 96,
+          },
+        ]
+      : []),
+    ...(state.monthCols.length < 6
+      ? [
+          {
+            id: "data-window",
+            title: "Janela historica curta",
+            description: `A analise esta operando com ${state.monthCols.length} meses de historico.`,
+            impact: "Forecast e leitura de tendencia ficam menos robustos.",
+            action: "Expandir a serie historica na proxima importacao.",
+            to: "/forecast",
+            tone: "low" as const,
+            priority: 70,
+          },
+        ]
+      : []),
+  ].sort((left, right) => (preferences.prioritizeAlerts ? right.priority - left.priority : 0));
 
-    const updater = window.__OPERION_UPDATER__;
-    if (!updater) {
-      setUpdaterSnapshot({
-        phase: "disabled",
-        status: "disabled",
-        message: "Updater indisponivel no ambiente atual",
-        percent: 0,
-        progressPercent: 0,
-        version: null,
-        currentVersion: null,
-        availableVersion: null,
-        installReady: false,
-        willInstallOnQuit: true,
-        lastError: null,
-        installedVersion: null,
-        installedMessage: null,
-      });
-      return () => {
-        active = false;
-      };
-    }
+  const topAlerts = alerts.slice(0, 3);
 
-    let unsubscribe = () => {};
-
-    updater
-      .getStatus()
-      .then((status: UpdaterStatusSnapshot) => {
-        if (active) {
-          setUpdaterSnapshot(status);
-          if (status.currentVersion) {
-            setAppVersion(status.currentVersion);
-          }
-        }
-      })
-      .catch(error => {
-        if (active) {
-          setUpdaterSnapshot({
-            phase: "error",
-            status: "error",
-            message: error instanceof Error ? error.message : String(error),
-            percent: 0,
-            progressPercent: 0,
-            version: null,
-            currentVersion: null,
-            availableVersion: null,
-            installReady: false,
-            willInstallOnQuit: true,
-            lastError: error instanceof Error ? error.message : String(error),
-            installedVersion: null,
-            installedMessage: null,
-          });
-        }
-      });
-
-    unsubscribe = updater.onStatus((status: UpdaterStatusSnapshot) => {
-      if (active) {
-        setUpdaterSnapshot(status);
-        if (status.currentVersion) {
-          setAppVersion(status.currentVersion);
-        }
-      }
-    });
-
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, [desktopBridge]);
-
-  if (!state) return null;
-
-  const countA = state.products.filter(p => p.classeABC === "A").length;
-  const countB = state.products.filter(p => p.classeABC === "B").length;
-  const countC = state.products.filter(p => p.classeABC === "C").length;
-  const countMTS = state.products.filter(p => (p.estrategiaFinal ?? p.estrategiaBase).includes("MTS")).length;
-  const volumeTotal = state.products.reduce((sum, p) => sum + p.volumeAnual, 0);
-
-  const modules = [
-    { to: "/abc-xyz", icon: BarChart3, label: "ABC / XYZ", desc: "Classificacao e matriz" },
-    { to: "/forecast", icon: TrendingUp, label: "Forecast", desc: "Projecao de demanda" },
-    { to: "/mts", icon: Package, label: "MTS / MTO", desc: "Recomendacoes e export" },
-    { to: "/relatorios", icon: FileSpreadsheet, label: "Relatorios", desc: "Pack S&OP" },
+  const recommendedActions = [
+    {
+      title: "Refinar politica de atendimento",
+      description: "Cruzar criticidade ABC, estabilidade e estrategia final para reduzir excesso e ruptura.",
+      to: "/mts",
+      impact: `${countMTS} itens pedem decisao de politica.`,
+      icon: Target,
+    },
+    {
+      title: "Atualizar leitura financeira",
+      description: "Traduzir a estrategia operacional em investimento de estoque e compromissos de caixa.",
+      to: "/financeiro",
+      impact: "Alinha Supply com CFO e caixa.",
+      icon: BriefcaseBusiness,
+    },
+    {
+      title: "Emitir pack executivo",
+      description: "Consolidar resumo, historico, riscos e recomendacoes para a reuniao de decisao.",
+      to: "/relatorios",
+      impact: "Acelera alinhamento entre CEO, COO e CFO.",
+      icon: FileText,
+    },
+    {
+      title: "Interpretar com IA",
+      description: "Gerar leitura assistida por persona com contexto estruturado do ciclo atual.",
+      to: "/ia",
+      impact: `Provider ${integrationSettings.provider === "openai" ? "OpenAI" : "deterministico"} pronto para governanca.`,
+      icon: Sparkles,
+    },
   ];
 
-  const handleContextPack = async () => {
-    try {
-      setContextPackLoading(true);
-      setContextPackError(null);
-      const payload = await getContextPack();
-      setContextPack(payload);
-      setCopyContextStatus(null);
-    } catch (err) {
-      setContextPackError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setContextPackLoading(false);
-    }
-  };
-
-  const handleRunSOP = async () => {
-    try {
-      setPipelineLoading(true);
-      setContextPackError(null);
-      setPipelineStatus(null);
-      const response = await runSOPPipeline({
-        file_format: "none",
-        simulate_mts: true,
-      });
-      setContextPack(response.context_pack_2_0);
-      setPipelineStatus(formatPipelineSummary(response.execution_summary));
-      setCopyContextStatus(null);
-    } catch (err) {
-      setContextPackError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPipelineLoading(false);
-    }
-  };
-
-  const handleCopyContextPack = async () => {
-    if (!contextPack) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(contextPack, null, 2));
-      setCopyContextStatus("Context pack copiado");
-    } catch (error) {
-      setCopyContextStatus(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const handleGenerateInsights = async () => {
-    try {
-      setInsightsLoading(true);
-      setInsightsError(null);
-      const payload = contextPack ?? (await getContextPack());
-      if (!contextPack) {
-        setContextPack(payload);
-      }
-      const aiResponse = await interpretAI({
-        persona,
-        context_pack: payload,
-        language: "pt-BR",
-      });
-      setInsights(aiResponse);
-      setCopyReportStatus(null);
-    } catch (err) {
-      setInsightsError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setInsightsLoading(false);
-    }
-  };
-
-  const handleCopyReport = async () => {
-    if (!insights) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(buildMarkdownReport(insights));
-      setCopyReportStatus("Relatorio copiado");
-    } catch (error) {
-      setCopyReportStatus(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const handleOpenLogs = async () => {
-    if (!desktopBridge?.openLogs) {
-      setDiagnosticError("Abrir logs disponivel apenas no app desktop.");
-      return;
-    }
-
-    try {
-      setOpenLogsBusy(true);
-      setDiagnosticError(null);
-      await desktopBridge.openLogs();
-      setDiagnosticStatus("Pasta de logs aberta.");
-    } catch (error) {
-      setDiagnosticStatus(null);
-      setDiagnosticError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setOpenLogsBusy(false);
-    }
-  };
-
-  const handleCopyUpdaterDiagnostic = async () => {
-    const updater = window.__OPERION_UPDATER__;
-    if (!updater?.copyDiagnostic) {
-      setDiagnosticStatus(null);
-      setDiagnosticError("Diagnostico do updater disponivel apenas no app desktop.");
-      return;
-    }
-
-    try {
-      setDiagnosticError(null);
-      const result = await updater.copyDiagnostic();
-      setDiagnosticStatus(result.message);
-    } catch (error) {
-      setDiagnosticStatus(null);
-      setDiagnosticError(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const updaterProgress = Math.max(
-    0,
-    Math.min(100, Math.round(updaterSnapshot.progressPercent ?? updaterSnapshot.percent ?? 0)),
-  );
-  const currentInstalledVersion = updaterSnapshot.currentVersion ?? appVersion;
-  const availableUpdaterVersion = updaterSnapshot.availableVersion ?? updaterSnapshot.version ?? "n/a";
+  const personaShortcuts = [
+    {
+      title: "Supply",
+      description: "Volume, criticidade e politica de atendimento.",
+      to: "/mts",
+      icon: Factory,
+    },
+    {
+      title: "CFO",
+      description: "Capital empregado, buffers e exposicao financeira.",
+      to: "/financeiro",
+      icon: BriefcaseBusiness,
+    },
+    {
+      title: "CEO",
+      description: "Sintese executiva e alinhamento cross-functional.",
+      to: "/relatorios",
+      icon: FileText,
+    },
+    {
+      title: "COO",
+      description: "Planejamento, capacidade e risco de execucao.",
+      to: "/forecast",
+      icon: TrendingUp,
+    },
+  ];
 
   return (
     <PageTransition className="p-6 space-y-6">
-      <div className="page-header">
-        <h2>Home Executiva — S&OE / S&OP</h2>
-        <p>
-          {state.products.length} SKUs · {state.monthCols.length} meses
-          {state.hasClientes && ` · ${state.clientes.length} clientes`}
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-        <MetricCard label="Total SKUs" value={state.products.length} />
-        <MetricCard label="Vol. Total Produzido" value={`${Math.round(volumeTotal).toLocaleString()} kg`} />
-        <MetricCard label="Classe A" value={countA} sub={`${Math.round((countA / state.products.length) * 100)}% dos SKUs`} />
-        <MetricCard label="Classe B" value={countB} />
-        <MetricCard label="Classe C" value={countC} />
-        <MetricCard label="Candidatos MTS" value={countMTS} />
-        {state.portfolioConc && (
-          <MetricCard
-            label="HHI Portfolio"
-            value={state.portfolioConc.hhiPortfolio.toFixed(3)}
-            sub={`Top1: ${(state.portfolioConc.top1SharePortfolio * 100).toFixed(1)}%`}
-          />
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {modules.map(m => (
-          <Link key={m.to} to={m.to} className="metric-card hover:border-primary/50 transition-colors group cursor-pointer">
-            <m.icon className="h-5 w-5 text-primary mb-2 group-hover:scale-110 transition-transform" />
-            <p className="text-sm font-bold font-mono text-foreground">{m.label}</p>
-            <p className="text-xs text-muted-foreground mt-1">{m.desc}</p>
-          </Link>
-        ))}
-      </div>
-
-      <div className="metric-card space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-bold font-mono text-foreground">Diagnostico</h3>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              className="font-mono text-sm"
-              onClick={handleCopyUpdaterDiagnostic}
-              disabled={!window.__OPERION_UPDATER__?.copyDiagnostic}
-            >
-              Copiar diagnostico do updater
-            </Button>
-            <Button
-              variant="secondary"
-              className="font-mono text-sm"
-              onClick={handleOpenLogs}
-              disabled={openLogsBusy || !desktopBridge?.openLogs}
-            >
-              {openLogsBusy ? "Abrindo..." : "Abrir logs"}
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid gap-2 text-xs font-mono">
-          <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Versao atual instalada:</span> {currentInstalledVersion}
-          </div>
-          <div className="rounded border border-border bg-muted/20 px-3 py-2 break-all">
-            <span className="text-muted-foreground">Backend URL:</span> {API_URL}
-          </div>
-          <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Status atual do updater:</span> {updaterSnapshot.message || "Sem status"}
-          </div>
-          <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Ultima versao encontrada:</span> {availableUpdaterVersion}
-          </div>
-          <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Progresso do download:</span> {updaterProgress}%
-          </div>
-          <div className="rounded border border-border bg-muted/20 px-3 py-2">
-            <span className="text-muted-foreground">Instalacao ao fechar:</span>{" "}
-            {updaterSnapshot.willInstallOnQuit ? "Ativa" : "Inativa"}
-          </div>
-        </div>
-
-        {(updaterSnapshot.phase === "downloading" || updaterSnapshot.installReady) && (
-          <div className="rounded border border-border bg-muted/20 px-3 py-3">
-            <div className="h-2 overflow-hidden rounded-full bg-border/60">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  updaterSnapshot.installReady ? "bg-success" : "bg-primary"
-                }`}
-                style={{ width: `${updaterProgress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {updaterSnapshot.installReady && (
-          <div className="rounded border border-success/40 bg-success/10 px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-mono font-semibold text-success">
-                Atualizacao baixada. Feche o app para instalar.
-              </p>
-              <span className="rounded border border-success/40 bg-success/10 px-2 py-1 text-[10px] font-mono uppercase text-success">
-                Pronto
+      <section className="relative overflow-hidden rounded-[32px] border border-border/70 bg-card/90 px-6 py-8 shadow-[0_24px_80px_rgba(2,6,23,0.35)]">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-90"
+          style={{
+            background:
+              "radial-gradient(circle at top left, rgba(14,165,233,0.2), transparent 30%), radial-gradient(circle at 85% 20%, rgba(16,185,129,0.14), transparent 24%), linear-gradient(140deg, rgba(15,23,42,0.24), rgba(2,6,23,0.65))",
+          }}
+        />
+        <div className="relative space-y-6">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="space-y-4">
+              <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] font-mono uppercase tracking-[0.28em] text-primary">
+                Resumo executivo
               </span>
+              <div className="space-y-3">
+                <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-foreground">
+                  O ciclo atual pede foco em estabilidade operacional, mix de politica e governanca de estoque
+                </h1>
+                <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                  O Operion esta monitorando {totalProducts} SKUs em {state.monthCols.length} meses, com{" "}
+                  {Math.round(classAShare * 100)}% do portfolio concentrado em itens Classe A e{" "}
+                  {Math.round(mtsShare * 100)}% do mix pedindo revisao de politica MTS/MTO.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              {hasUpdaterAttention(updaterStatus) && (
+                <Button asChild variant="outline" className="gap-2 rounded-full border-warning/30 bg-warning/10 text-warning hover:bg-warning/15 hover:text-warning">
+                  <Link to="/configuracoes?tab=atualizacoes">
+                    Atualizacao do app
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              )}
+              <Button asChild className="gap-2">
+                <Link to="/relatorios">
+                  Abrir pack executivo
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="gap-2">
+                <Link to="/ia">
+                  Interpretar com IA
+                  <Bot className="h-4 w-4" />
+                </Link>
+              </Button>
             </div>
           </div>
-        )}
 
-        {updaterSnapshot.installedMessage && (
-          <div className="rounded border border-success/40 bg-success/10 px-3 py-2">
-            <p className="text-xs font-mono font-semibold text-success">{updaterSnapshot.installedMessage}</p>
-          </div>
-        )}
-
-        {updaterSnapshot.lastError && (
-          <p className="text-xs font-mono text-destructive">{updaterSnapshot.lastError}</p>
-        )}
-        {diagnosticStatus && <p className="text-xs font-mono text-muted-foreground">{diagnosticStatus}</p>}
-        {diagnosticError && <p className="text-xs font-mono text-destructive">{diagnosticError}</p>}
-      </div>
-
-      <div className="metric-card space-y-3">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <h3 className="text-sm font-bold font-mono text-foreground">Context Pack 2.0</h3>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center">
-            <Button
-              variant="secondary"
-              className="font-mono text-sm"
-              onClick={handleContextPack}
-              disabled={contextPackLoading || pipelineLoading}
-            >
-              {contextPackLoading ? "Carregando..." : "Gerar Context Pack"}
-            </Button>
-            <Button
-              className="font-mono text-sm"
-              onClick={handleRunSOP}
-              disabled={contextPackLoading || pipelineLoading}
-            >
-              {pipelineLoading ? "Rodando..." : "Rodar S&OP"}
-            </Button>
-          </div>
-        </div>
-
-        {pipelineStatus && <p className="text-xs font-mono text-muted-foreground">{pipelineStatus}</p>}
-        {contextPackError && <p className="text-xs font-mono text-destructive">{contextPackError}</p>}
-
-        {contextPack && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-mono text-muted-foreground">
-                generated_at: {String(contextPack.generated_at ?? "n/a")}
+          <div className="grid gap-3 lg:grid-cols-4">
+            <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">O que esta acontecendo</p>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                O portfolio segue puxado pelos itens A e pela necessidade de calibrar politica de atendimento.
               </p>
-              <Button variant="outline" className="font-mono text-xs" onClick={handleCopyContextPack}>
-                Copiar Context Pack
-              </Button>
             </div>
-            {copyContextStatus && <p className="text-xs font-mono text-muted-foreground">{copyContextStatus}</p>}
-            <pre className="w-full overflow-auto rounded border border-border bg-muted/30 p-3 text-xs font-mono whitespace-pre-wrap">
-              {JSON.stringify(contextPack, null, 2)}
-            </pre>
+            <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">O que exige atencao</p>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                {topAlerts[0]?.title ?? "Sem alertas criticos fora da faixa esperada neste momento."}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Qual o impacto</p>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                {topAlerts[0]?.impact ?? "A operacao esta em faixa controlada com base no contexto carregado."}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">O que fazer agora</p>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                {topAlerts[0]?.action ?? "Emitir o pack executivo e manter a rotina de acompanhamento."}
+              </p>
+            </div>
           </div>
-        )}
+        </div>
+      </section>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <MetricCard label="Portfolio monitorado" value={totalProducts} sub={`${state.monthCols.length} meses ativos`} accent />
+        <MetricCard label="Volume anual" value={`${Math.round(volumeTotal).toLocaleString()} kg`} />
+        <MetricCard label="Itens Classe A" value={countA} sub={`${Math.round(classAShare * 100)}% do portfolio`} />
+        <MetricCard label="Candidatos MTS" value={countMTS} sub={`${Math.round(mtsShare * 100)}% do mix`} />
+        <MetricCard
+          label="Concentracao"
+          value={hhiPortfolio != null ? hhiPortfolio.toFixed(3) : "n/a"}
+          sub={state.hasClientes ? `Top1 ${(top1Share * 100).toFixed(1)}%` : "Sem camada de clientes"}
+        />
       </div>
 
-      <div className="metric-card space-y-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <h3 className="text-sm font-bold font-mono text-foreground">IA Interpretadora</h3>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center">
-            <Select value={persona} onValueChange={value => setPersona(value as AIPersona)}>
-              <SelectTrigger className="w-full md:w-56 font-mono text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="SUPPLY">Diretor Supply Chain</SelectItem>
-                <SelectItem value="CFO">CFO</SelectItem>
-                <SelectItem value="CEO">CEO</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button className="font-mono text-sm" onClick={handleGenerateInsights} disabled={insightsLoading}>
-              {insightsLoading ? "Gerando..." : "Gerar Insights IA"}
-            </Button>
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <section className="metric-card space-y-4">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 text-warning" />
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Alertas priorizados</p>
+              <h2 className="text-xl font-semibold text-foreground">O que exige atencao agora</h2>
+            </div>
+          </div>
+
+          {topAlerts.length === 0 ? (
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-5 text-sm text-muted-foreground">
+              O contexto atual nao gerou alertas executivos fora da faixa esperada.
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {topAlerts.map((alert) => (
+                <Link key={alert.id} to={alert.to} className="rounded-2xl border border-border/70 bg-muted/20 p-4 transition-colors hover:border-primary/40 hover:bg-background/70">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full border px-3 py-1 text-[11px] font-mono uppercase tracking-[0.24em] ${toneClassName[alert.tone]}`}>
+                          {alert.tone === "high" ? "Alta prioridade" : alert.tone === "medium" ? "Atencao" : "Monitorar"}
+                        </span>
+                      </div>
+                      <h3 className="text-base font-semibold text-foreground">{alert.title}</h3>
+                      <p className="text-sm leading-6 text-muted-foreground">{alert.description}</p>
+                    </div>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-xl border border-border/70 bg-background/40 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Impacto</p>
+                      <p className="mt-2 text-sm text-foreground">{alert.impact}</p>
+                    </div>
+                    <div className="rounded-xl border border-border/70 bg-background/40 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Acao imediata</p>
+                      <p className="mt-2 text-sm text-foreground">{alert.action}</p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="metric-card space-y-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-primary" />
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Leitura rapida</p>
+              <h2 className="text-xl font-semibold text-foreground">Sinais do ciclo</h2>
+            </div>
+          </div>
+
+          <div className="grid gap-3">
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Supply</p>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                A base aponta {countMTS} itens com oportunidade de ajuste de politica e {countA} itens criticos no corte ABC.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Financeiro</p>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                O valor em estoque depende da calibracao entre estabilidade de demanda, buffers e cobertura de materia-prima.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Execucao</p>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                {rmSummary
+                  ? `${rmSummary.total} materiais foram carregados, com ${rmSummary.belowSLA} abaixo do alvo de SLA 95%.`
+                  : "A camada de materia-prima ainda nao foi carregada para leitura de risco de abastecimento."}
+              </p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section className="metric-card space-y-4">
+        <div className="flex items-center gap-2">
+          <Target className="h-4 w-4 text-primary" />
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Acoes recomendadas</p>
+            <h2 className="text-xl font-semibold text-foreground">O que fazer agora</h2>
           </div>
         </div>
 
-        {insightsError && <p className="text-xs font-mono text-destructive">{insightsError}</p>}
-
-        {insights && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-mono text-muted-foreground">Persona ativa: {PERSONA_LABEL[insights.persona]}</p>
-              <Button variant="outline" className="font-mono text-xs" onClick={handleCopyReport}>
-                Copiar relatorio
-              </Button>
-            </div>
-
-            {copyReportStatus && <p className="text-xs font-mono text-muted-foreground">{copyReportStatus}</p>}
-
-            <div className="space-y-2">
-              <h4 className="text-sm font-bold font-mono text-foreground">Executive Summary</h4>
-              <ul className="space-y-1 text-xs font-mono text-foreground">
-                {insights.executive_summary.map((item, idx) => (
-                  <li key={`${item}-${idx}`} className="rounded border border-border bg-muted/30 px-3 py-2">
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="text-sm font-bold font-mono text-foreground">Risks</h4>
-              {insights.risks.length === 0 ? (
-                <p className="text-xs font-mono text-muted-foreground">Sem riscos qualificados.</p>
-              ) : (
-                <div className="grid gap-2">
-                  {insights.risks.map((risk, idx) => (
-                    <div key={`${risk.title}-${idx}`} className="rounded border border-border bg-muted/20 p-3 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-mono font-semibold text-foreground">{risk.title}</p>
-                        <span className={`text-[11px] font-mono uppercase ${SEVERITY_STYLE[risk.severity]}`}>{risk.severity}</span>
-                      </div>
-                      <div className="space-y-1">
-                        {risk.evidence.map((evidence, evidenceIdx) => (
-                          <p key={`${evidence.path}-${evidenceIdx}`} className="text-[11px] font-mono text-muted-foreground break-all">
-                            {evidence.path}: {formatEvidenceValue(evidence.value)}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+          {recommendedActions.map((action) => {
+            const Icon = action.icon;
+            return (
+              <Link key={action.title} to={action.to} className="group rounded-2xl border border-border/70 bg-muted/20 p-5 transition-colors hover:border-primary/40 hover:bg-background/70">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="rounded-2xl border border-primary/20 bg-primary/10 p-3 text-primary">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1" />
                 </div>
-              )}
-            </div>
+                <h3 className="mt-4 text-base font-semibold text-foreground">{action.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{action.description}</p>
+                <p className="mt-4 text-xs uppercase tracking-[0.24em] text-primary">{action.impact}</p>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
 
-            <div className="space-y-2">
-              <h4 className="text-sm font-bold font-mono text-foreground">Actions</h4>
-              {insights.actions.length === 0 ? (
-                <p className="text-xs font-mono text-muted-foreground">Sem acoes priorizadas.</p>
-              ) : (
-                <div className="grid gap-2">
-                  {insights.actions.map((action, idx) => (
-                    <div key={`${action.title}-${idx}`} className="rounded border border-border bg-muted/20 p-3 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs font-mono font-semibold text-foreground">{action.title}</p>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-mono text-muted-foreground">{action.horizon}</span>
-                          <span className={`text-[11px] font-mono uppercase ${IMPACT_STYLE[action.impact]}`}>{action.impact}</span>
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        {action.evidence.map((evidence, evidenceIdx) => (
-                          <p key={`${evidence.path}-${evidenceIdx}`} className="text-[11px] font-mono text-muted-foreground break-all">
-                            {evidence.path}: {formatEvidenceValue(evidence.value)}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+      <section className="metric-card space-y-4">
+        <div className="flex items-center gap-2">
+          <Package className="h-4 w-4 text-primary" />
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Acesso por persona</p>
+            <h2 className="text-xl font-semibold text-foreground">Experiencia executiva por papel</h2>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {personaShortcuts.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link key={item.title} to={item.to} className="group rounded-2xl border border-border/70 bg-muted/20 p-5 transition-colors hover:border-primary/40 hover:bg-background/70">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="rounded-2xl border border-border/70 bg-background/50 p-3">
+                    <Icon className="h-5 w-5 text-foreground" />
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1" />
                 </div>
-              )}
+                <h3 className="mt-4 text-base font-semibold text-foreground">{item.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.description}</p>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      {preferences.showAITeaser && (
+        <section className="rounded-[28px] border border-border/70 bg-card/90 p-6 shadow-[0_24px_80px_rgba(2,6,23,0.24)]">
+          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">IA discreta</p>
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-2xl font-semibold tracking-tight text-foreground">Interpretacao assistida, sem expor a tela principal</h2>
+                <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                  A camada de IA fica separada da Home executiva. Use-a quando precisar transformar o ciclo atual em
+                  leitura por persona, perguntas de validacao e recomendacoes orientadas a impacto.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Button asChild className="gap-2">
+                  <Link to="/ia">
+                    Abrir workspace de IA
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="gap-2">
+                  <Link to="/configuracoes?tab=integracoes">
+                    Configurar provider
+                    <Settings2 className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <h4 className="text-sm font-bold font-mono text-foreground">Questions to Validate</h4>
-              <ul className="space-y-1 text-xs font-mono text-muted-foreground">
-                {insights.questions_to_validate.map((question, idx) => (
-                  <li key={`${question}-${idx}`} className="rounded border border-border bg-muted/20 px-3 py-2">
-                    {question}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="text-sm font-bold font-mono text-foreground">Data Quality Flags</h4>
-              {insights.data_quality_flags.length === 0 ? (
-                <p className="text-xs font-mono text-muted-foreground">Sem flags de qualidade.</p>
-              ) : (
-                <ul className="space-y-1 text-xs font-mono text-warning">
-                  {insights.data_quality_flags.map((flag, idx) => (
-                    <li key={`${flag}-${idx}`} className="rounded border border-warning/30 bg-warning/10 px-3 py-2">
-                      {flag}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="rounded border border-border bg-muted/20 px-3 py-2">
-              <p className="text-xs font-mono text-muted-foreground">{insights.disclaimer}</p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Provider</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{integrationSettings.provider === "openai" ? "OpenAI" : "Deterministico"}</p>
+              </div>
+              <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Modelo</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{integrationSettings.model}</p>
+              </div>
+              <div className="rounded-2xl border border-border/70 bg-muted/20 p-4 md:col-span-2">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Uso recomendado</p>
+                <p className="mt-2 text-sm leading-6 text-foreground">
+                  Gere uma interpretacao quando quiser consolidar a reuniao executiva em poucas mensagens acionaveis.
+                </p>
+              </div>
             </div>
           </div>
-        )}
-      </div>
+        </section>
+      )}
     </PageTransition>
   );
 }

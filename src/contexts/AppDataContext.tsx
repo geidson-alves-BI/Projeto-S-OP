@@ -30,6 +30,8 @@ interface AppDataContextType {
   reset: () => void;
   rmData: RMData[] | null;
   setRMData: (data: RMData[] | null) => void;
+  lastFGImportAt: string | null;
+  lastRMImportAt: string | null;
 }
 
 const AppDataContext = createContext<AppDataContextType | null>(null);
@@ -47,6 +49,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<AppState | null>(null);
   const [rmData, setRMData] = useState<RMData[] | null>(null);
+  const [lastFGImportAt, setLastFGImportAt] = useState<string | null>(null);
+  const [lastRMImportAt, setLastRMImportAt] = useState<string | null>(null);
 
   const handleLoad = useCallback(async () => {
     if (!fileProd) { setError("Envie a base de Produção primeiro."); return; }
@@ -90,12 +94,20 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         products, monthCols, prodLong, prodConc, portfolioConc,
         clientes: clientesList, hasClientes,
       });
+      setLastFGImportAt(new Date().toISOString());
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
   }, [fileProd, fileCli]);
+
+  const handleSetRMData = useCallback((data: RMData[] | null) => {
+    setRMData(data);
+    if (data && data.length > 0) {
+      setLastRMImportAt(new Date().toISOString());
+    }
+  }, []);
 
   const reset = useCallback(() => {
     setState(null);
@@ -108,7 +120,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     <AppDataContext.Provider value={{
       state, loading, error, fileProd, fileCli,
       setFileProd, setFileCli, handleLoad, reset,
-      rmData, setRMData,
+      rmData, setRMData: handleSetRMData,
+      lastFGImportAt, lastRMImportAt,
     }}>
       {children}
     </AppDataContext.Provider>
