@@ -132,6 +132,11 @@ class AIInterpretResponse(BaseModel):
     opportunities: List[AIOpportunity]
     actions: List[AIAction]
     limitations: List[str]
+    analysisScope: str
+    inputsAvailable: List[str]
+    inputsMissing: List[str]
+    appImprovementTitle: str
+    appImprovementSuggestions: List[str]
     questions_to_validate: List[str]
     data_quality_flags: List[str]
     disclaimer: str

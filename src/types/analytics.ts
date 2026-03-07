@@ -92,6 +92,11 @@ export type AIInterpretResponse = {
   opportunities: AIOpportunity[];
   actions: AIAction[];
   limitations: string[];
+  analysisScope: string;
+  inputsAvailable: string[];
+  inputsMissing: string[];
+  appImprovementTitle: string;
+  appImprovementSuggestions: string[];
   questions_to_validate: string[];
   data_quality_flags: string[];
   disclaimer: string;
@@ -128,6 +133,35 @@ export type AITestConnectionResponse = {
   providerActive: AIIntegrationProvider;
   modelActive: string;
   lastTestedAt: string | null;
+};
+
+export type AnalyticsDataStatus = {
+  strategyReport: {
+    loaded: boolean;
+    rowCount: number;
+    updatedAt: string | null;
+  };
+  forecast: {
+    loaded: boolean;
+    rowCount: number;
+    updatedAt: string | null;
+  };
+  mtsSimulation: {
+    loaded: boolean;
+    rowCount: number;
+    updatedAt: string | null;
+  };
+  rawMaterialForecast: {
+    loaded: boolean;
+    rowCount: number;
+    updatedAt: string | null;
+  };
+  bom: {
+    loaded: boolean;
+    rowsCount: number;
+    productsCount: number;
+    updatedAt: string | null;
+  };
 };
 
 export type RunSOPPipelineRequest = {

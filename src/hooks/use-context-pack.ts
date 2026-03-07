@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAppData } from "@/contexts/AppDataContext";
-import { buildContextPackViewModel } from "@/lib/context-pack";
+import { buildContextPackViewModel, mergeContextPackWithLoadedData } from "@/lib/context-pack";
 import { getContextPack } from "@/lib/api";
 import type { ContextPack } from "@/types/analytics";
 
@@ -15,8 +15,9 @@ export function useContextPack(autoLoad = true) {
       setLoading(true);
       setError(null);
       const payload = await getContextPack();
-      setContextPack(payload);
-      return payload;
+      const merged = mergeContextPackWithLoadedData(payload, state, rmData);
+      setContextPack(merged);
+      return merged;
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : String(fetchError));
       return null;

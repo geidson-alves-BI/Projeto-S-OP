@@ -17,6 +17,7 @@ import { useContextPack } from "@/hooks/use-context-pack";
 import { useAppData } from "@/contexts/AppDataContext";
 import { loadLocalSettings, mergeLocalIntegrationSettings } from "@/lib/local-settings";
 import { getAIConfig, interpretAI, runSOPPipeline } from "@/lib/api";
+import { mergeContextPackWithLoadedData } from "@/lib/context-pack";
 import type {
   AIConnectionStatus,
   AIInterpretResponse,
@@ -29,6 +30,17 @@ const PERSONA_LABEL: Record<AIPersona, string> = {
   CFO: "CFO",
   CEO: "CEO",
   COO: "COO",
+};
+
+const PERSONA_DESCRIPTION: Record<AIPersona, string> = {
+  SUPPLY:
+    "Leitura de PCP senior com foco em planejamento, compras, cobertura de estoque, risco de ruptura, capacidade e politica MTS/MTO.",
+  CFO:
+    "Leitura financeira com foco em capital de giro, impacto financeiro, concentracao de receita, dependencia de clientes e exposicao economica.",
+  CEO:
+    "Leitura estrategica com foco em concentracao do negocio, robustez do portfolio, crescimento e continuidade operacional.",
+  COO:
+    "Leitura operacional com foco em estabilidade da execucao, gargalos, dependencia de insumos e continuidade da operacao.",
 };
 
 const SEVERITY_STYLE: Record<AIInterpretResponse["risks"][number]["severity"], string> = {
@@ -85,6 +97,15 @@ function buildMarkdownReport(insights: AIInterpretResponse): string {
   lines.push(`Used fallback: ${insights.usedFallback ? "yes" : "no"}`);
   lines.push(`Fallback reason: ${insights.reasonFallback ?? "n/a"}`);
   lines.push("");
+  lines.push("## Analysis Scope");
+  lines.push(insights.analysisScope);
+  lines.push("");
+  lines.push("## Inputs Available");
+  insights.inputsAvailable.forEach((item) => lines.push(`- ${item}`));
+  lines.push("");
+  lines.push("## Inputs Missing");
+  insights.inputsMissing.forEach((item) => lines.push(`- ${item}`));
+  lines.push("");
   lines.push("## Executive Summary");
   insights.executive_summary.forEach((item) => lines.push(`- ${item}`));
   lines.push("");
@@ -117,6 +138,9 @@ function buildMarkdownReport(insights: AIInterpretResponse): string {
   lines.push("");
   lines.push("## Disclaimer");
   lines.push(insights.disclaimer);
+  lines.push("");
+  lines.push(`## ${insights.appImprovementTitle}`);
+  insights.appImprovementSuggestions.forEach((item) => lines.push(`- ${item}`));
   return lines.join("\n");
 }
 
@@ -127,9 +151,9 @@ function formatPipelineSummary(summary: RunSOPPipelineResponse["execution_summar
 }
 
 export default function AIPage() {
-  const { state } = useAppData();
+  const { state, rmData } = useAppData();
   const [integrationSettings, setIntegrationSettings] = useState(() => loadLocalSettings().integrations);
-  const { contextPack, setContextPack, refresh, loading, error, viewModel } = useContextPack(Boolean(state));
+  const { contextPack, setContextPack, refresh, loading, error, viewModel } = useContextPack(Boolean(state || rmData));
 
   const [pipelineLoading, setPipelineLoading] = useState(false);
   const [pipelineStatus, setPipelineStatus] = useState<string | null>(null);
@@ -140,6 +164,7 @@ export default function AIPage() {
   const [insightsError, setInsightsError] = useState<string | null>(null);
   const [insights, setInsights] = useState<AIInterpretResponse | null>(null);
   const [copyReportStatus, setCopyReportStatus] = useState<string | null>(null);
+  const [hasGeneratedInsights, setHasGeneratedInsights] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -215,21 +240,26 @@ export default function AIPage() {
     }
   };
 
-  const handleGenerateInsights = async () => {
+  const handleGenerateInsights = async (targetPersona = persona) => {
     try {
       setInsightsLoading(true);
       setInsightsError(null);
-      const payload = contextPack ?? (await refresh());
-      if (!payload) {
+      const backendPayload = contextPack ?? (await refresh());
+      const effectivePayload = mergeContextPackWithLoadedData(backendPayload, state, rmData);
+
+      if (!effectivePayload) {
         throw new Error("Nao foi possivel consolidar o contexto antes da interpretacao.");
       }
 
+      setContextPack(effectivePayload);
+
       const aiResponse = await interpretAI({
-        persona,
-        context_pack: payload,
+        persona: targetPersona,
+        context_pack: effectivePayload,
         language: "pt-BR",
       });
       setInsights(aiResponse);
+      setHasGeneratedInsights(true);
       setCopyReportStatus(null);
     } catch (generateError) {
       setInsightsError(generateError instanceof Error ? generateError.message : String(generateError));
@@ -251,7 +281,16 @@ export default function AIPage() {
     }
   };
 
-  if (!state) {
+  const handlePersonaChange = (nextPersona: string) => {
+    const normalizedPersona = nextPersona as AIPersona;
+    setPersona(normalizedPersona);
+
+    if (hasGeneratedInsights) {
+      void handleGenerateInsights(normalizedPersona);
+    }
+  };
+
+  if (!state && !rmData) {
     return (
       <PageTransition className="p-6">
         <section className="relative overflow-hidden rounded-[28px] border border-border/70 bg-card/90 px-6 py-8 shadow-[0_24px_80px_rgba(2,6,23,0.35)]">
@@ -264,10 +303,10 @@ export default function AIPage() {
           />
           <div className="relative mx-auto max-w-3xl space-y-5 text-center">
             <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] font-mono uppercase tracking-[0.28em] text-primary">
-              IA Operion
+              IA Executiva
             </span>
             <div className="space-y-3">
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">A IA interpreta o contexto consolidado do negocio</h1>
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">A IA Executiva interpreta o contexto consolidado do negocio</h1>
               <p className="mx-auto max-w-2xl text-sm leading-6 text-muted-foreground">
                 Antes de gerar leituras executivas, o Operion precisa montar o contexto analitico com dados de
                 operacao. Carregue as bases para liberar o pacote de contexto que alimenta IA e relatorios.
@@ -322,10 +361,10 @@ export default function AIPage() {
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-4">
             <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] font-mono uppercase tracking-[0.28em] text-primary">
-              IA e contexto
+              IA Executiva
             </span>
             <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">A IA utiliza o Contexto Executivo Consolidado para gerar leituras executivas</h1>
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">IA Executiva com leitura unica por persona</h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
                 Quanto mais modulos analiticos entram no contexto, maior a qualidade das recomendacoes para Supply,
                 CFO, CEO e COO. Sem contexto consolidado, a interpretacao fica limitada.
@@ -423,8 +462,8 @@ export default function AIPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Persona executiva</label>
-              <Select value={persona} onValueChange={(value) => setPersona(value as AIPersona)}>
+              <label className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Selecionar leitura executiva</label>
+              <Select value={persona} onValueChange={handlePersonaChange}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -435,10 +474,11 @@ export default function AIPage() {
                   <SelectItem value="COO">COO</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-sm leading-6 text-muted-foreground">{PERSONA_DESCRIPTION[persona]}</p>
             </div>
-            <Button className="w-full gap-2" onClick={handleGenerateInsights} disabled={insightsLoading}>
+            <Button className="w-full gap-2" onClick={() => void handleGenerateInsights(persona)} disabled={insightsLoading}>
               <BrainCircuit className="h-4 w-4" />
-              {insightsLoading ? "Gerando leitura..." : "Gerar insights executivos"}
+              {insightsLoading ? "Atualizando leitura..." : "Gerar leitura executiva"}
             </Button>
             {insightsError && <p className="text-xs font-mono text-destructive">{insightsError}</p>}
             {copyReportStatus && <p className="text-xs font-mono text-muted-foreground">{copyReportStatus}</p>}
@@ -522,6 +562,22 @@ export default function AIPage() {
             <div className="metric-card">
               <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Modelo usado</p>
               <p className="mt-2 text-lg font-semibold text-foreground">{insights.modelUsed}</p>
+            </div>
+          </div>
+
+            <div className="rounded-2xl border border-border/70 bg-card/70 px-5 py-4 text-sm text-foreground">
+            <p className="font-semibold">{insights.analysisScope}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {insights.inputsAvailable.map((item) => (
+                <span key={item} className="rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs text-foreground">
+                  Disponivel: {item}
+                </span>
+              ))}
+              {insights.inputsMissing.map((item) => (
+                <span key={item} className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs text-foreground">
+                  Lacuna: {item}
+                </span>
+              ))}
             </div>
           </div>
 
@@ -701,6 +757,17 @@ export default function AIPage() {
                 )}
                 <div className="rounded-2xl border border-border/70 bg-background/50 px-4 py-3 text-sm text-muted-foreground">
                   {insights.disclaimer}
+                </div>
+              </section>
+
+              <section className="metric-card space-y-3">
+                <h3 className="text-base font-semibold text-foreground">{insights.appImprovementTitle}</h3>
+                <div className="grid gap-2">
+                  {insights.appImprovementSuggestions.map((suggestion, index) => (
+                    <div key={`${suggestion}-${index}`} className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-foreground">
+                      {suggestion}
+                    </div>
+                  ))}
                 </div>
               </section>
             </div>

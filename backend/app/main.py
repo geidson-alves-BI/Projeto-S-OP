@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -333,3 +334,39 @@ def run_sop_pipeline(req: RunSOPPipelineRequest):
 def context_pack():
     payload = build_context_pack(analytics_store.get_session_snapshot())
     return payload
+
+
+@app.get("/analytics/data_status")
+def analytics_data_status():
+    snapshot = analytics_store.get_session_snapshot()
+
+    def build_snapshot_status(key: str) -> dict[str, Any]:
+        node = snapshot.get(key, {})
+        if not isinstance(node, dict):
+            node = {}
+        meta = node.get("meta", {})
+        if not isinstance(meta, dict):
+            meta = {}
+        row_count = int(meta.get("row_count", 0) or 0)
+        return {
+            "loaded": row_count > 0,
+            "rowCount": row_count,
+            "updatedAt": meta.get("generated_at"),
+        }
+
+    bom_status = snapshot.get("bom_status", {})
+    if not isinstance(bom_status, dict):
+        bom_status = {}
+
+    return {
+        "strategyReport": build_snapshot_status("last_strategy_report"),
+        "forecast": build_snapshot_status("last_forecast"),
+        "mtsSimulation": build_snapshot_status("last_mts_simulation"),
+        "rawMaterialForecast": build_snapshot_status("last_raw_material_forecast"),
+        "bom": {
+            "loaded": bool(bom_status.get("loaded", False)),
+            "rowsCount": int(bom_status.get("rows_count", 0) or 0),
+            "productsCount": int(bom_status.get("products_count", 0) or 0),
+            "updatedAt": bom_status.get("updated_at"),
+        },
+    }

@@ -21,6 +21,10 @@ const QUESTION_SUGGESTIONS = [
   "Quais lacunas impedem uma analise executiva mais robusta?",
 ];
 
+function toIsoTimestamp() {
+  return new Date().toISOString();
+}
+
 function hasContent(value: unknown) {
   if (value === null || value === undefined) {
     return false;
@@ -32,6 +36,239 @@ function hasContent(value: unknown) {
     return Object.keys(value as Record<string, unknown>).length > 0;
   }
   return true;
+}
+
+function buildFallbackTopProducts(state: AppState | null) {
+  if (!state?.products.length) {
+    return [];
+  }
+
+  return [...state.products]
+    .sort((left, right) => right.volumeAnual - left.volumeAnual)
+    .slice(0, 10)
+    .map((product) => ({
+      product_code: product.codigoProduto,
+      product_name: product.denominacao,
+      total_sales: Math.round(product.volumeAnual),
+      abc_class: product.classeABC,
+      xyz_class: product.classeXYZ,
+      recommended_strategy: product.estrategiaFinal ?? product.estrategiaBase,
+      top_client: product.top1Cliente ?? null,
+      top_client_share: product.top1ShareProduto ?? null,
+    }));
+}
+
+function buildFallbackStrategyProducts(state: AppState | null, strategyPrefix: "MTS" | "MTO") {
+  if (!state?.products.length) {
+    return [];
+  }
+
+  return state.products
+    .filter((product) => (product.estrategiaFinal ?? product.estrategiaBase).toUpperCase().startsWith(strategyPrefix))
+    .sort((left, right) => right.volumeAnual - left.volumeAnual)
+    .slice(0, 20)
+    .map((product) => ({
+      product_code: product.codigoProduto,
+      product_name: product.denominacao,
+      total_sales: Math.round(product.volumeAnual),
+      recommended_stock: Math.round(product.targetKgAjustado ?? product.targetKg30),
+      abc_class: product.classeABC,
+      xyz_class: product.classeXYZ,
+      recommended_strategy: product.estrategiaFinal ?? product.estrategiaBase,
+    }));
+}
+
+function buildFallbackForecastSummary(state: AppState | null) {
+  if (!state?.products.length) {
+    return {};
+  }
+
+  const monthlyForecasts = state.products.map((product) => ({
+    product_code: product.codigoProduto,
+    final_forecast: Math.round(product.mediaMensal),
+  }));
+  const numericValues = monthlyForecasts.map((item) => item.final_forecast).filter((value) => value > 0);
+
+  if (numericValues.length === 0) {
+    return {};
+  }
+
+  const sorted = [...monthlyForecasts].sort((left, right) => right.final_forecast - left.final_forecast);
+  const total = numericValues.reduce((sum, value) => sum + value, 0);
+  const mean = total / numericValues.length;
+  const min = Math.min(...numericValues);
+  const max = Math.max(...numericValues);
+
+  return {
+    products: state.products.length,
+    total_forecast: total,
+    total_final_forecast: total,
+    avg_final_forecast: mean,
+    max_final_forecast: max,
+    min_final_forecast: min,
+    top_forecast_products: sorted.slice(0, 10),
+    distribution: {
+      mean,
+      median: numericValues.sort((left, right) => left - right)[Math.floor(numericValues.length / 2)],
+      max,
+      min,
+      zero_count: monthlyForecasts.length - numericValues.length,
+      nan_count: 0,
+    },
+    flags: ["derived_from_loaded_fg_history"],
+  };
+}
+
+function buildFallbackRawMaterialImpact(rmData: RMData[] | null) {
+  if (!rmData?.length) {
+    return {};
+  }
+
+  const grouped = rmData
+    .map((item) => ({
+      raw_material_code: item.codProduto || item.cod_produto,
+      raw_material_name: item.denominacao,
+      total_required: Number(item.consumo90d || item.consumo30d || 0),
+      stock_available: Number(item.estoqueDisponivel || 0),
+      lead_time_days: Number(item.tempoReposicao || item.tr_tempo_reposicao || 0),
+    }))
+    .sort((left, right) => right.total_required - left.total_required);
+
+  return {
+    materials: grouped.length,
+    total_required: grouped.reduce((sum, item) => sum + item.total_required, 0),
+    top_raw_materials: grouped.slice(0, 15),
+    critical_raw_materials: grouped.slice(0, 5),
+    top_materials: grouped.slice(0, 10),
+    flags: ["derived_from_loaded_rm_base"],
+  };
+}
+
+function buildFallbackFinancialImpact(state: AppState | null, rmData: RMData[] | null) {
+  const rmCostRows =
+    rmData?.map((item) => ({
+      product_code: item.codProduto || item.cod_produto,
+      total_production_cost: Number(item.valorEstoqueUS90d || item.estoqueDisponivel * item.custoLiquidoUS || 0),
+      total_raw_material_cost: Number(item.valorEstoqueUS180d || item.estoqueDisponivel * item.custoLiquidoUS || 0),
+    })) ?? [];
+
+  const validCostRows = rmCostRows.filter(
+    (row) => row.total_production_cost > 0 || row.total_raw_material_cost > 0,
+  );
+
+  if (validCostRows.length === 0) {
+    return {};
+  }
+
+  return {
+    products_simulated: state?.products.length ?? validCostRows.length,
+    total_cost: validCostRows.reduce((sum, row) => sum + row.total_production_cost, 0),
+    average_cost:
+      validCostRows.reduce((sum, row) => sum + row.total_production_cost, 0) / validCostRows.length,
+    total_production_cost: validCostRows.reduce((sum, row) => sum + row.total_production_cost, 0),
+    total_raw_material_cost: validCostRows.reduce((sum, row) => sum + row.total_raw_material_cost, 0),
+    top_cost_products: validCostRows
+      .sort((left, right) => right.total_production_cost - left.total_production_cost)
+      .slice(0, 10),
+    flags: ["derived_from_loaded_rm_costs"],
+  };
+}
+
+export function buildContextPackFromLoadedData(
+  state: AppState | null,
+  rmData: RMData[] | null,
+): ContextPack | null {
+  if (!state?.products.length && !rmData?.length) {
+    return null;
+  }
+
+  const topProducts = buildFallbackTopProducts(state);
+  const mtsProducts = buildFallbackStrategyProducts(state, "MTS");
+  const mtoProducts = buildFallbackStrategyProducts(state, "MTO");
+  const forecastSummary = buildFallbackForecastSummary(state);
+  const rawMaterialImpact = buildFallbackRawMaterialImpact(rmData);
+  const financialImpact = buildFallbackFinancialImpact(state, rmData);
+
+  const flags = [
+    !topProducts.length ? "missing_strategy_report" : null,
+    !hasContent(forecastSummary) ? "missing_forecast" : null,
+    !hasContent(rawMaterialImpact) ? "missing_raw_material_forecast" : null,
+    !hasContent(financialImpact) ? "missing_financial_layer" : null,
+    state?.hasClientes ? null : "missing_client_base",
+  ].filter(Boolean) as string[];
+
+  return {
+    top_products: topProducts,
+    mts_products: mtsProducts,
+    mto_products: mtoProducts,
+    mts_count: mtsProducts.length,
+    mto_count: mtoProducts.length,
+    forecast_summary: forecastSummary,
+    raw_material_impact: rawMaterialImpact,
+    financial_impact: financialImpact,
+    data_quality: {
+      flags,
+      status: flags.length === 0 ? "ok" : "partial",
+    },
+    generated_at: toIsoTimestamp(),
+    inputs_available: {
+      strategy_report: topProducts.length > 0,
+      forecast: hasContent(forecastSummary),
+      bom: false,
+      mts_simulation: mtsProducts.length > 0 || mtoProducts.length > 0,
+      raw_material_forecast: hasContent(rawMaterialImpact),
+    },
+  };
+}
+
+export function mergeContextPackWithLoadedData(
+  raw: ContextPack | null,
+  state: AppState | null,
+  rmData: RMData[] | null,
+): ContextPack | null {
+  const fallback = buildContextPackFromLoadedData(state, rmData);
+  if (!raw) {
+    return fallback;
+  }
+  if (!fallback) {
+    return raw;
+  }
+
+  const mergedFlags = Array.from(
+    new Set([...(raw.data_quality?.flags ?? []), ...(fallback.data_quality?.flags ?? [])]),
+  );
+
+  return {
+    ...fallback,
+    ...raw,
+    top_products: hasContent(raw.top_products) ? raw.top_products : fallback.top_products,
+    mts_products: hasContent(raw.mts_products) ? raw.mts_products : fallback.mts_products,
+    mto_products: hasContent(raw.mto_products) ? raw.mto_products : fallback.mto_products,
+    mts_count: raw.mts_count ?? fallback.mts_count,
+    mto_count: raw.mto_count ?? fallback.mto_count,
+    forecast_summary: hasContent(raw.forecast_summary) ? raw.forecast_summary : fallback.forecast_summary,
+    raw_material_impact: hasContent(raw.raw_material_impact) ? raw.raw_material_impact : fallback.raw_material_impact,
+    financial_impact: hasContent(raw.financial_impact) ? raw.financial_impact : fallback.financial_impact,
+    generated_at: raw.generated_at ?? fallback.generated_at,
+    data_quality: {
+      flags: mergedFlags,
+      status:
+        raw.data_quality?.status === "ok" && fallback.data_quality?.status === "ok" ? "ok" : "partial",
+    },
+    inputs_available: {
+      ...fallback.inputs_available,
+      ...raw.inputs_available,
+      strategy_report:
+        Boolean(raw.inputs_available?.strategy_report) || Boolean(fallback.inputs_available?.strategy_report),
+      forecast: Boolean(raw.inputs_available?.forecast) || Boolean(fallback.inputs_available?.forecast),
+      bom: Boolean(raw.inputs_available?.bom) || Boolean(fallback.inputs_available?.bom),
+      mts_simulation:
+        Boolean(raw.inputs_available?.mts_simulation) || Boolean(fallback.inputs_available?.mts_simulation),
+      raw_material_forecast:
+        Boolean(raw.inputs_available?.raw_material_forecast) ||
+        Boolean(fallback.inputs_available?.raw_material_forecast),
+    },
+  };
 }
 
 function buildSources(raw: ContextPack | null, state: AppState | null, rmData: RMData[] | null) {

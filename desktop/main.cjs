@@ -12,7 +12,7 @@ const {
   autoUpdater: nativeAutoUpdater,
 } = require("electron");
 const { autoUpdater } = require("electron-updater");
-const { execFile, spawn } = require("child_process");
+const { execFile, execFileSync, spawn } = require("child_process");
 const fs = require("fs");
 const http = require("http");
 const net = require("net");
@@ -35,6 +35,9 @@ let backendProcess = null;
 let backendPort = DEFAULT_BACKEND_PORT;
 let backendStatusText = "Backend nao iniciado";
 let apiRewriteRegistered = false;
+let backendStopPromise = null;
+let backendShutdownExpected = false;
+let appQuitInProgress = false;
 
 let installUpdateOnQuit = true;
 let lastDownloadProgressLogged = -1;
@@ -574,28 +577,159 @@ async function waitForBackendReady(port, timeoutSec) {
   throw new Error(`Timeout aguardando backend responder em ${healthUrl}.`);
 }
 
-async function stopEmbeddedBackend() {
-  if (!backendProcess || backendProcess.killed) {
-    return;
-  }
+function waitForChildExit(childProcess, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    if (!childProcess || childProcess.killed || childProcess.exitCode !== null) {
+      resolve();
+      return;
+    }
 
-  const pid = backendProcess.pid;
-  if (!pid) {
-    return;
-  }
+    let settled = false;
 
-  await new Promise((resolve) => {
-    execFile(
-      "taskkill",
-      ["/PID", String(pid), "/T", "/F"],
-      { windowsHide: true },
-      () => resolve(),
-    );
+    const cleanup = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timer);
+      childProcess.removeListener("exit", handleExit);
+    };
+
+    const handleExit = () => {
+      cleanup();
+      resolve();
+    };
+
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, timeoutMs);
+
+    childProcess.once("exit", handleExit);
   });
+}
 
-  backendProcess = null;
+function clearBackendProcessReference(processRef = null) {
+  if (!backendProcess) {
+    return;
+  }
+
+  if (!processRef) {
+    backendProcess = null;
+    return;
+  }
+
+  if (backendProcess === processRef || backendProcess.pid === processRef.pid) {
+    backendProcess = null;
+  }
+}
+
+function stopEmbeddedBackendSync(reason = "process-exit") {
+  if (!backendProcess || backendProcess.killed) {
+    backendProcess = null;
+    return;
+  }
+
+  const processRef = backendProcess;
+  const pid = processRef.pid;
+  if (!pid) {
+    clearBackendProcessReference(processRef);
+    return;
+  }
+
+  backendShutdownExpected = true;
+  logDesktop("info", `Encerrando backend de forma sincronizada. reason=${reason} pid=${pid}`);
+
+  try {
+    execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+      windowsHide: true,
+      stdio: "ignore",
+    });
+  } catch (error) {
+    logDesktop("warn", `Falha no encerramento sincronizado do backend: ${error.message}`);
+  }
+
+  clearBackendProcessReference(processRef);
   setBackendStatus("Backend encerrado");
-  logDesktop("info", `Backend encerrado (PID ${pid})`);
+  logDesktop("info", `Backend encerrado de forma sincronizada (PID ${pid})`);
+}
+
+async function stopEmbeddedBackend(reason = "app-shutdown") {
+  if (backendStopPromise) {
+    return backendStopPromise;
+  }
+
+  if (!backendProcess || backendProcess.killed) {
+    backendProcess = null;
+    return;
+  }
+
+  const processRef = backendProcess;
+  const pid = processRef.pid;
+  if (!pid) {
+    clearBackendProcessReference(processRef);
+    return;
+  }
+
+  backendShutdownExpected = true;
+  logDesktop("info", `Encerrando backend. reason=${reason} pid=${pid}`);
+
+  backendStopPromise = (async () => {
+    await new Promise((resolve) => {
+      execFile(
+        "taskkill",
+        ["/PID", String(pid), "/T", "/F"],
+        { windowsHide: true },
+        () => resolve(),
+      );
+    });
+
+    await waitForChildExit(processRef, 3500);
+    clearBackendProcessReference(processRef);
+    setBackendStatus("Backend encerrado");
+    logDesktop("info", `Backend encerrado (PID ${pid})`);
+  })()
+    .catch((error) => {
+      logDesktop("warn", `Falha ao encerrar backend: ${error.message}`);
+    })
+    .finally(() => {
+      backendStopPromise = null;
+      backendShutdownExpected = false;
+    });
+
+  return backendStopPromise;
+}
+
+async function requestAppShutdown(trigger = "unknown", installAfterShutdown = false) {
+  if (appQuitInProgress) {
+    return;
+  }
+
+  appQuitInProgress = true;
+  isQuitting = true;
+  const shouldInstall = Boolean(installAfterShutdown && updateState.installReady && installUpdateOnQuit);
+
+  logDesktop(
+    "info",
+    `Encerrando app. trigger=${trigger} installAfterShutdown=${shouldInstall}`,
+  );
+
+  if (shouldInstall) {
+    markApplyingUpdateOnQuit(trigger);
+  }
+
+  await stopEmbeddedBackend(`app-shutdown:${trigger}`);
+
+  if (shouldInstall) {
+    logDesktop("info", "quitAndInstall chamado manualmente");
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.quitAndInstall(false, true);
+    return;
+  }
+
+  app.quit();
 }
 
 async function startEmbeddedBackend() {
@@ -635,8 +769,16 @@ async function startEmbeddedBackend() {
     logBackend(`[stderr] ${chunk.toString().trimEnd()}`);
   });
 
+  const launchedProcess = backendProcess;
+
   backendProcess.on("exit", (code, signal) => {
-    logDesktop("warn", `Backend encerrou. code=${code ?? "null"} signal=${signal ?? "null"}`);
+    const expectedShutdown = backendShutdownExpected || isQuitting;
+    clearBackendProcessReference(launchedProcess);
+    setBackendStatus("Backend encerrado");
+    logDesktop(
+      expectedShutdown ? "info" : "warn",
+      `Backend encerrou. code=${code ?? "null"} signal=${signal ?? "null"} expected=${expectedShutdown}`,
+    );
   });
 
   backendProcess.on("error", (error) => {
@@ -668,9 +810,7 @@ async function showBackendErrorAndQuit(error) {
     await shell.openPath(logsDir);
   }
 
-  isQuitting = true;
-  await stopEmbeddedBackend();
-  app.quit();
+  await requestAppShutdown("backend-start-failure", false);
 }
 
 function showMainWindow() {
@@ -824,18 +964,10 @@ function createMainWindow() {
 
   mainWindow.on("close", (event) => {
     if (!isQuitting) {
-      if (updateState.installReady && installUpdateOnQuit) {
-        event.preventDefault();
-        isQuitting = true;
-        markApplyingUpdateOnQuit("window-close");
-        setImmediate(() => {
-          app.quit();
-        });
-        return;
-      }
-
       event.preventDefault();
-      mainWindow.hide();
+      requestAppShutdown("window-close", updateState.installReady && installUpdateOnQuit).catch((error) => {
+        logDesktop("error", `Falha ao encerrar app pelo fechamento da janela: ${error.message}`);
+      });
     }
   });
 
@@ -910,12 +1042,9 @@ function applyUpdateNow() {
       installReady: true,
       error: null,
     });
-    isQuitting = true;
-    markApplyingUpdateOnQuit("manual-install");
-    logDesktop("info", "quitAndInstall chamado manualmente");
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
-    autoUpdater.quitAndInstall(false, true);
+    requestAppShutdown("manual-install", true).catch((error) => {
+      logDesktop("error", `Falha ao iniciar quitAndInstall: ${error.message}`);
+    });
     return true;
   } catch (error) {
     logDesktop("error", `Falha ao aplicar update: ${error.message}`);
@@ -1188,14 +1317,7 @@ function buildTrayMenuTemplate() {
     {
       label: "Quit",
       click: async () => {
-        if (updateState.installReady && installUpdateOnQuit) {
-          applyUpdateNow();
-          return;
-        }
-
-        isQuitting = true;
-        await stopEmbeddedBackend();
-        app.quit();
+        await requestAppShutdown("tray-quit", updateState.installReady && installUpdateOnQuit);
       },
     },
   ];
@@ -1260,7 +1382,17 @@ app.on("before-quit", () => {
     logDesktop("info", "before-quit-for-update");
     markApplyingUpdateOnQuit("before-quit");
   }
-  stopEmbeddedBackend();
+  stopEmbeddedBackend("before-quit").catch((error) => {
+    logDesktop("warn", `Falha ao encerrar backend em before-quit: ${error.message}`);
+  });
+});
+
+app.on("will-quit", () => {
+  stopEmbeddedBackendSync("will-quit");
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
 });
 
 app.on("window-all-closed", () => {
@@ -1276,5 +1408,9 @@ process.on("uncaughtException", (error) => {
 process.on("unhandledRejection", (error) => {
   const message = error instanceof Error ? error.message : String(error);
   logDesktop("error", `unhandledRejection: ${message}`);
+});
+
+process.on("exit", () => {
+  stopEmbeddedBackendSync("process-exit");
 });
 

@@ -65,7 +65,8 @@ const navSections = [
 
 const directLinks = [
   { to: "/", label: "Inicio" },
-  { to: "/ia", label: "IA", icon: Bot },
+  { to: "/upload", label: "Upload de Dados", icon: UploadIcon },
+  { to: "/ia", label: "IA Executiva", icon: Bot },
   { to: "/configuracoes", label: "Configuracoes", icon: Settings2 },
 ] as const;
 
@@ -195,8 +196,8 @@ export default function TopNav() {
             <div className="hidden rounded-full border border-border/70 bg-card/70 px-3 py-1 md:flex md:flex-col">
               <span className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Escopo</span>
               <span className="text-xs text-foreground">
-                {state.products.length} SKUs · {state.monthCols.length} meses
-                {state.hasClientes ? ` · ${state.clientes.length} clientes` : ""}
+                {state.products.length} SKUs | {state.monthCols.length} meses
+                {state.hasClientes ? ` | ${state.clientes.length} clientes` : ""}
               </span>
             </div>
           ) : (
@@ -207,7 +208,7 @@ export default function TopNav() {
 
           <Button variant="outline" size="sm" className="h-9 gap-2 rounded-xl text-xs" onClick={handleNewLoad}>
             <UploadIcon className="h-3.5 w-3.5" />
-            {hasLoadedData ? "Nova carga" : "Carregar dados"}
+            {hasLoadedData ? "Reabrir uploads" : "Carregar dados"}
           </Button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import type {
   AIIntegrationConfigRequest,
   AIIntegrationConfigResponse,
+  AnalyticsDataStatus,
   AIInterpretRequest,
   AIInterpretResponse,
   AITestConnectionResponse,
@@ -173,6 +174,10 @@ export async function computeForecast(payload: {
 
 export async function getContextPack() {
   return getJSON<ContextPack>("/analytics/context_pack");
+}
+
+export async function getAnalyticsDataStatus() {
+  return getJSON<AnalyticsDataStatus>("/analytics/data_status");
 }
 
 export async function interpretAI(payload: AIInterpretRequest) {
