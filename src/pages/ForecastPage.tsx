@@ -10,6 +10,56 @@ import MultiSelect from "@/components/MultiSelect";
 import { ABCBadge, StratBadge } from "@/components/ABCBadge";
 import { useAppData } from "@/contexts/AppDataContext";
 import type { ProductData } from "@/lib/pcpEngine";
+import { postJSON } from "@/lib/api";
+import type { ForecastResult } from "@/types/analytics";
+
+interface ForecastInputRow {
+  id: number;
+  product_code: string;
+  last_30_days: string;
+  last_90_days: string;
+  last_180_days: string;
+  last_365_days: string;
+}
+
+function parseForecastResponse(payload: unknown): ForecastResult[] {
+  if (Array.isArray(payload)) {
+    return payload as ForecastResult[];
+  }
+
+  if (payload && typeof payload === "object") {
+    const maybeRecord = payload as Record<string, unknown>;
+
+    if (Array.isArray(maybeRecord.items)) {
+      return maybeRecord.items as ForecastResult[];
+    }
+
+    if (Array.isArray(maybeRecord.data)) {
+      return maybeRecord.data as ForecastResult[];
+    }
+
+    if (typeof maybeRecord.product_code === "string") {
+      return [maybeRecord as ForecastResult];
+    }
+  }
+
+  return [];
+}
+
+function parseFlexibleNumber(value: string) {
+  const cleaned = value.trim();
+  if (!cleaned) {
+    return 0;
+  }
+
+  let normalized = cleaned;
+  if (normalized.includes(",")) {
+    normalized = normalized.replace(/\./g, "").replace(",", ".");
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 function forecastProduct(p: ProductData, horizonMonths: number, growthPct: number) {
   const baseMonthly = p.mediaMensal;
@@ -38,12 +88,21 @@ function downloadCSV(rows: string[][], filename: string) {
 export default function ForecastPage() {
   const { state } = useAppData();
   const navigate = useNavigate();
-  useEffect(() => { if (!state) navigate("/upload"); }, [state, navigate]);
+  useEffect(() => {
+    if (!state) navigate("/upload");
+  }, [state, navigate]);
 
   const [horizon, setHorizon] = useState("6");
   const [growthPct, setGrowthPct] = useState(0);
   const [selectedSkus, setSelectedSkus] = useState<string[]>([]);
   const [filterABC, setFilterABC] = useState("Todos");
+
+  const [forecastInputs, setForecastInputs] = useState<ForecastInputRow[]>([
+    { id: 1, product_code: "", last_30_days: "", last_90_days: "", last_180_days: "", last_365_days: "" },
+  ]);
+  const [apiLoading, setApiLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [apiResults, setApiResults] = useState<ForecastResult[]>([]);
 
   const productOptions = useMemo(() => state?.products.map(p => p.SKU_LABEL) ?? [], [state]);
 
@@ -56,7 +115,7 @@ export default function ForecastPage() {
   }, [state, filterABC, selectedSkus]);
 
   const forecastData = useMemo(() => {
-    const h = parseInt(horizon);
+    const h = parseInt(horizon, 10);
     return filteredProducts.map(p => ({
       product: p,
       forecast: forecastProduct(p, h, growthPct),
@@ -66,8 +125,8 @@ export default function ForecastPage() {
   const totalForecastVol = forecastData.reduce((s, d) => s + d.forecast.totalForecast, 0);
 
   const handleExport = () => {
-    const h = parseInt(horizon);
-    const header = ["SKU", "ABC-XYZ", "Média Mensal (kg)", "Crescimento (%)", "Horizonte (meses)", "Forecast Total (kg)", "Taxa Diária (kg)"];
+    const h = parseInt(horizon, 10);
+    const header = ["SKU", "ABC-XYZ", "Media Mensal (kg)", "Crescimento (%)", "Horizonte (meses)", "Forecast Total (kg)", "Taxa Diaria (kg)"];
     const rows = forecastData.map(d => [
       d.product.SKU_LABEL,
       d.product.abcXyz,
@@ -80,6 +139,61 @@ export default function ForecastPage() {
     downloadCSV([header, ...rows], `forecast_${horizon}m_${growthPct}pct.csv`);
   };
 
+  const updateInput = (id: number, field: keyof ForecastInputRow, value: string) => {
+    setForecastInputs(prev => prev.map(row => (row.id === id ? { ...row, [field]: value } : row)));
+  };
+
+  const addInputRow = () => {
+    setForecastInputs(prev => [
+      ...prev,
+      { id: Date.now(), product_code: "", last_30_days: "", last_90_days: "", last_180_days: "", last_365_days: "" },
+    ]);
+  };
+
+  const removeInputRow = (id: number) => {
+    setForecastInputs(prev => (prev.length > 1 ? prev.filter(row => row.id !== id) : prev));
+  };
+
+  const handleCalculateDemandForecast = async () => {
+    try {
+      setApiLoading(true);
+      setApiError(null);
+
+      const items = forecastInputs
+        .filter(row => row.product_code.trim() !== "")
+        .map(row => ({
+          product_code: row.product_code.trim(),
+          last_30_days: parseFlexibleNumber(row.last_30_days),
+          last_90_days: parseFlexibleNumber(row.last_90_days),
+          last_180_days: parseFlexibleNumber(row.last_180_days),
+          last_365_days: parseFlexibleNumber(row.last_365_days),
+        }));
+
+      if (items.length === 0) {
+        setApiError("Informe ao menos um product_code para calcular a previsao.");
+        return;
+      }
+
+      let response: unknown;
+
+      if (items.length === 1) {
+        try {
+          response = await postJSON("/analytics/forecast_demand", items[0]);
+        } catch (_singleError) {
+          response = await postJSON("/analytics/forecast_demand", { items });
+        }
+      } else {
+        response = await postJSON("/analytics/forecast_demand", { items });
+      }
+
+      setApiResults(parseForecastResponse(response));
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setApiLoading(false);
+    }
+  };
+
   if (!state) return null;
 
   return (
@@ -89,14 +203,13 @@ export default function ForecastPage() {
           <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
             <TrendingUp className="h-5 w-5 text-primary" /> Forecast de Demanda
           </h2>
-          <p className="text-xs text-muted-foreground font-mono mt-1">Projeção baseada em média histórica + % crescimento</p>
+          <p className="text-xs text-muted-foreground font-mono mt-1">Projecao baseada em media historica + % crescimento</p>
         </div>
         <Button variant="outline" size="sm" className="font-mono text-xs" onClick={handleExport} disabled={forecastData.length === 0}>
           <Download className="h-3.5 w-3.5 mr-1" /> Exportar CSV
         </Button>
       </div>
 
-      {/* Controls */}
       <div className="metric-card">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
           <div>
@@ -134,7 +247,6 @@ export default function ForecastPage() {
         </div>
       </div>
 
-      {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard label="SKUs no Forecast" value={forecastData.length} />
         <MetricCard label="Vol. Total Forecast" value={`${totalForecastVol.toLocaleString()} kg`} sub={`${horizon} meses`} />
@@ -142,18 +254,17 @@ export default function ForecastPage() {
         <MetricCard label="Horizonte" value={`${horizon} meses`} />
       </div>
 
-      {/* Table */}
       <div className="metric-card overflow-x-auto max-h-[500px] overflow-y-auto">
         <table className="data-table">
           <thead className="sticky top-0 z-10">
             <tr>
               <th>SKU</th>
               <th>ABC-XYZ</th>
-              <th>Média Mensal</th>
-              <th>Estratégia</th>
+              <th>Media Mensal</th>
+              <th>Estrategia</th>
               <th>Forecast Total</th>
-              <th>Taxa Diária</th>
-              <th>Tendência</th>
+              <th>Taxa Diaria</th>
+              <th>Tendencia</th>
             </tr>
           </thead>
           <tbody>
@@ -171,6 +282,94 @@ export default function ForecastPage() {
           </tbody>
         </table>
       </div>
+
+      <div className="metric-card space-y-3">
+        <h3 className="text-sm font-bold font-mono text-foreground">Calculo via backend analytics</h3>
+
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>product_code</th>
+                <th>last_30_days</th>
+                <th>last_90_days</th>
+                <th>last_180_days</th>
+                <th>last_365_days</th>
+                <th>Acoes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {forecastInputs.map(row => (
+                <tr key={row.id}>
+                  <td>
+                    <input
+                      value={row.product_code}
+                      onChange={e => updateInput(row.id, "product_code", e.target.value)}
+                      className="w-full bg-background border border-border rounded px-2 py-1 text-xs font-mono"
+                      placeholder="P001"
+                    />
+                  </td>
+                  {(["last_30_days", "last_90_days", "last_180_days", "last_365_days"] as const).map(field => (
+                    <td key={field}>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={row[field]}
+                        onChange={e => updateInput(row.id, field, e.target.value)}
+                        className="w-full bg-background border border-border rounded px-2 py-1 text-xs font-mono"
+                        placeholder="0"
+                      />
+                    </td>
+                  ))}
+                  <td>
+                    <Button variant="ghost" size="sm" className="text-xs" onClick={() => removeInputRow(row.id)}>
+                      Remover
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="font-mono text-xs" onClick={addInputRow}>Adicionar linha</Button>
+          <Button className="font-mono text-sm" onClick={handleCalculateDemandForecast} disabled={apiLoading}>
+            {apiLoading ? "Calculando..." : "Calcular previsao de demanda"}
+          </Button>
+        </div>
+
+        {apiError && <p className="text-xs font-mono text-destructive">{apiError}</p>}
+
+        {apiResults.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>product_code</th>
+                  <th>moving_average</th>
+                  <th>seasonal_forecast</th>
+                  <th>trend_forecast</th>
+                  <th>final_forecast</th>
+                </tr>
+              </thead>
+              <tbody>
+                {apiResults.map((item, idx) => (
+                  <tr key={`${item.product_code}-${idx}`}>
+                    <td className="font-mono text-xs">{item.product_code}</td>
+                    <td className="text-right font-mono text-xs">{Number(item.moving_average ?? item.moving_average_forecast ?? 0).toFixed(2)}</td>
+                    <td className="text-right font-mono text-xs">{Number(item.seasonal_forecast ?? 0).toFixed(2)}</td>
+                    <td className="text-right font-mono text-xs">{Number(item.trend_forecast ?? 0).toFixed(2)}</td>
+                    <td className="text-right font-mono text-xs font-bold">{Number(item.final_forecast ?? 0).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
+

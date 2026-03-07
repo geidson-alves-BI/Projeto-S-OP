@@ -1,4 +1,4 @@
-﻿# Operion
+# Operion
 
 Operion - Operational Intelligence Platform.
 
@@ -24,10 +24,10 @@ npm run desktop:dist
 
 Artefatos esperados:
 
-- `dist\desktop\Operion-Setup-<versao>.exe`
-- `dist\desktop\latest.yml`
-- `dist\desktop\Operion-Setup-<versao>.exe.blockmap`
-- `dist\desktop\win-unpacked\Operion.exe`
+- `dist-desktop\Operion-Setup-<versao>.exe`
+- `dist-desktop\latest.yml`
+- `dist-desktop\Operion-Setup-<versao>.exe.blockmap`
+- `dist-desktop\win-unpacked\Operion.exe`
 ## Operion Desktop (standalone)
 
 No desktop do Operion, o backend FastAPI inicia automaticamente junto com o app.  
@@ -65,10 +65,10 @@ npm run desktop:dist
 
 Saida esperada:
 
-- Instalador: `dist\desktop\Operion-Setup-<versao>.exe`
-- Blockmap: `dist\desktop\Operion-Setup-<versao>.exe.blockmap`
-- Metadata update: `dist\desktop\latest.yml`
-- App empacotado: `dist\desktop\win-unpacked\Operion.exe`
+- Instalador: `dist-desktop\Operion-Setup-<versao>.exe`
+- Blockmap: `dist-desktop\Operion-Setup-<versao>.exe.blockmap`
+- Metadata update: `dist-desktop\latest.yml`
+- App empacotado: `dist-desktop\win-unpacked\Operion.exe`
 
 Branding aplicado:
 
@@ -104,7 +104,7 @@ npm run desktop:dist
 
 2. Instale e abra o app:
 
-- `dist\desktop\Operion-Setup-0.1.0.exe`
+- `dist-desktop\Operion-Setup-0.1.0.exe`
 
 3. Valide:
 
@@ -120,16 +120,22 @@ Sem internet, o app abre e roda normalmente.
 
 Quando houver internet, o desktop:
 
-1. Checa atualizacoes no GitHub Releases ao iniciar
-2. Se houver nova versao, mostra notificacao e status no tray (`Atualizacao pendente`)
-3. Faz download em background
-4. Quando concluir, muda para `Pronto para instalar ao reiniciar`
+1. Checa atualizacoes automaticamente ao abrir (`checkForUpdatesAndNotify`)
+2. Se houver nova versao, mostra notificacao + status no painel do app e no tray
+3. Faz download automatico em background
+4. Quando concluir, muda para `Atualizacao baixada. Pronta para instalar ao reiniciar`
 
 Aplicacao da atualizacao:
 
-- Opcao 1: fechar e abrir o app novamente
-- Opcao 2: menu do tray -> `Reiniciar e atualizar agora`
-- Opcao adicional no tray: `Atualizar ao fechar` (ligado por padrao)
+- Opcao 1: fechar e abrir o app novamente (auto-install no restart)
+- Opcao 2: painel no app -> `Reiniciar e atualizar`
+- Opcao 3: menu do tray -> `Reiniciar e atualizar agora`
+- Opcao adicional: `Atualizar ao fechar` (ligado por padrao no tray e no painel)
+
+Controles manuais:
+
+- Painel no app: `Verificar atualizacoes agora`
+- Tray: `Verificar atualizacoes agora`
 
 Logs locais do desktop:
 
@@ -169,6 +175,67 @@ Teste basico de update (simulado):
 3. Abra o app `0.1.0` com internet
 4. Verifique tray com `Atualizacao pendente`
 5. Use `Reiniciar e atualizar agora` (ou reinicie o app)
+
+## Fluxo oficial de release
+
+Pre-requisitos:
+
+- Instalar GitHub CLI (`gh`)
+- Autenticar:
+- Estar na branch principal (`main` ou `principal`)
+
+```powershell
+gh auth login
+```
+
+Fluxo oficial recomendado:
+
+```powershell
+cd C:\Projetos\Operion
+npm ci
+npm run desktop:release
+```
+
+Esse comando executa em sequencia:
+
+1. validacao da branch principal (`main` ou `principal`)
+2. bump de versao para a release
+3. commit automatico unico das alteracoes de codigo
+4. push automatico para GitHub
+5. build desktop com output em `dist-desktop`
+6. geracao e validacao do instalador, `.blockmap` e `latest.yml`
+7. publicacao no GitHub Releases via `desktop:publish:gh`
+
+Observacao:
+
+- O fluxo faz apenas um commit automatico por release.
+- O commit automatico acontece apos o bump, entao a mensagem usa a versao final do `package.json`.
+
+Scripts auxiliares (continuam disponiveis):
+
+- `npm run desktop:git:sync`
+- `npm run desktop:dist`
+- `npm run desktop:dist:copy`
+- `npm run desktop:release:ready`
+- `npm run desktop:publish:gh`
+
+Teste rapido de auto-update apos publicar:
+
+1. Instale uma versao anterior do app (ex.: `0.1.6`).
+2. Abra o Operion com internet.
+3. Clique em `Verificar atualizacoes agora`.
+4. Aguarde download e execute `Reiniciar e atualizar`.
+5. Confirme a nova versao instalada.
+
+Publicacao apenas dos artefatos ja existentes em `release\desktop`:
+
+```powershell
+npm run desktop:publish:gh
+```
+
+Observacao importante:
+
+- O auto-updater so detecta nova versao se a versao for incrementada e a release correspondente for publicada no GitHub.
 
 ## Terminal 1: rodar backend (FastAPI)
 
@@ -325,4 +392,5 @@ O backend esta configurado para aceitar:
 - Erro `No module named fastapi` ou `uvicorn` nao reconhecido:
   - Rode `.\scripts\run_backend.ps1` para recriar ambiente e instalar dependencias.
   - Confirme com `.\scripts\check_backend.ps1` (valida imports e `GET /docs`).
+
 

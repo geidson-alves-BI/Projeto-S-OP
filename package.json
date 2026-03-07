@@ -1,7 +1,7 @@
 {
   "name": "operion",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.10",
   "description": "Operational Intelligence Platform",
   "author": "Operion",
   "main": "desktop/main.cjs",
@@ -17,7 +17,14 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "desktop:copy-artifacts": "node scripts/release-desktop.js",
+    "desktop:dist:copy": "npm run desktop:dist && npm run desktop:copy-artifacts",
+    "desktop:bump": "node scripts/bump-version.js",
+    "desktop:release:ready": "node scripts/release-ready.js",
+    "desktop:git:sync": "node scripts/git-auto-commit.js",
+    "desktop:publish:gh": "node scripts/publish-release-gh.js",
+    "desktop:release": "node scripts/release-ready.js --force-bump && npm run desktop:publish:gh"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -102,13 +109,12 @@
     "electronVersion": "32.2.0",
     "directories": {
       "buildResources": "build",
-      "output": "dist/desktop"
+      "output": "dist-desktop"
     },
     "files": [
       "dist/**/*",
       "desktop/**/*",
-      "package.json",
-      "!dist/desktop/**"
+      "package.json"
     ],
     "extraResources": [
       {

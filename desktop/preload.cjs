@@ -1,4 +1,4 @@
-const { contextBridge } = require("electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
 function parseBackendPort(apiUrl) {
   try {
@@ -16,5 +16,38 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     apiUrl,
     backendPort: parseBackendPort(apiUrl),
+  }),
+);
+
+contextBridge.exposeInMainWorld(
+  "__OPERION_UPDATER__",
+  Object.freeze({
+    getStatus: () => ipcRenderer.invoke("operion-updater:get-status"),
+    checkNow: () => ipcRenderer.invoke("operion-updater:check-now"),
+    installNow: () => ipcRenderer.invoke("operion-updater:install-now"),
+    setInstallOnQuit: (enabled) =>
+      ipcRenderer.invoke("operion-updater:set-install-on-quit", Boolean(enabled)),
+    onStatus: (callback) => {
+      if (typeof callback !== "function") {
+        return () => {};
+      }
+
+      const listener = (_event, payload) => {
+        callback(payload);
+      };
+
+      ipcRenderer.on("operion-updater:status", listener);
+      return () => {
+        ipcRenderer.removeListener("operion-updater:status", listener);
+      };
+    },
+  }),
+);
+
+contextBridge.exposeInMainWorld(
+  "desktop",
+  Object.freeze({
+    getVersion: () => ipcRenderer.invoke("app:getVersion"),
+    openLogs: () => ipcRenderer.invoke("app:openLogs"),
   }),
 );

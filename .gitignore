@@ -21,6 +21,15 @@ build/backend.exe
 build/backend-build/
 build/backend-dist/
 
+# Desktop/release artifacts
+dist/
+dist-desktop/
+release/
+*.exe
+*.blockmap
+latest.yml
+backend.exe
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
