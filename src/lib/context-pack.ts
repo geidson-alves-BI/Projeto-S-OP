@@ -15,7 +15,7 @@ const FRIENDLY_DESCRIPTION =
 
 const QUESTION_SUGGESTIONS = [
   "Quais sao os principais riscos desta operacao?",
-  "O que um CFO deveria priorizar nesta base?",
+  "O que a gestao deveria priorizar nesta base?",
   "Existem candidatos relevantes para MTS?",
   "Onde esta a maior concentracao de volume?",
   "Quais lacunas impedem uma analise executiva mais robusta?",
@@ -427,7 +427,7 @@ function buildComponents(
       label: "Impacto financeiro",
       available: financialImpactAvailable,
       detail: financialImpactAvailable
-        ? "Custos e investimento ja podem apoiar CFO e CEO."
+        ? "Custos e investimento ja consolidados para leitura executiva."
         : "Sem impacto financeiro consolidado para leitura executiva.",
     },
     {
@@ -463,39 +463,39 @@ function buildPersonas(
   const personas: ContextPackPersonaStatus[] = [
     {
       key: "SUPPLY",
-      label: "Supply",
+      label: "Operacao",
       ready: sourceFlags.hasStrategy && monthlyHistoryAvailable,
       detail:
         sourceFlags.hasStrategy && monthlyHistoryAvailable
-          ? "Leitura de criticidade, mix e politica pronta para Supply."
-          : "Supply ainda precisa de classificacao e historico consolidados.",
+          ? "Leitura de criticidade, mix e politica pronta."
+          : "Necessita classificacao e historico consolidados.",
     },
     {
       key: "CFO",
-      label: "CFO",
+      label: "Financeiro",
       ready: sourceFlags.hasStrategy && sourceFlags.hasFinancial,
       detail:
         sourceFlags.hasStrategy && sourceFlags.hasFinancial
-          ? "Leitura de custo, investimento e impacto pronta para CFO."
-          : "CFO ainda depende de camada financeira consolidada.",
+          ? "Leitura de custo, investimento e impacto pronta."
+          : "Depende de camada financeira consolidada.",
     },
     {
       key: "CEO",
-      label: "CEO",
+      label: "Estrategico",
       ready: sourceFlags.hasStrategy && (sourceFlags.hasForecast || sourceFlags.hasClientes),
       detail:
         sourceFlags.hasStrategy && (sourceFlags.hasForecast || sourceFlags.hasClientes)
-          ? "Resumo executivo com contexto comercial e tendencia suficiente para CEO."
-          : "CEO ainda depende de forecast ou concentracao comercial mais robusta.",
+          ? "Resumo executivo com contexto comercial e tendencia suficiente."
+          : "Depende de forecast ou concentracao comercial mais robusta.",
     },
     {
       key: "COO",
-      label: "COO",
+      label: "Execucao",
       ready: sourceFlags.hasStrategy && (sourceFlags.hasForecast || sourceFlags.hasRawMaterial),
       detail:
         sourceFlags.hasStrategy && (sourceFlags.hasForecast || sourceFlags.hasRawMaterial)
-          ? "Execucao operacional com capacidade, tendencia e insumo pronta para COO."
-          : "COO ainda depende de forecast ou cobertura de insumo.",
+          ? "Capacidade, tendencia e insumo prontos para leitura."
+          : "Depende de forecast ou cobertura de insumo.",
     },
   ];
 

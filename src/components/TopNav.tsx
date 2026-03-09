@@ -64,10 +64,9 @@ const navSections = [
 ] as const;
 
 const directLinks = [
-  { to: "/", label: "Inicio" },
+  { to: "/", label: "Inicio", icon: null },
   { to: "/upload", label: "Upload de Dados", icon: UploadIcon },
   { to: "/ia", label: "IA Executiva", icon: Bot },
-  { to: "/configuracoes", label: "Configuracoes", icon: Settings2 },
 ] as const;
 
 export default function TopNav() {
@@ -84,6 +83,8 @@ export default function TopNav() {
     navigate("/upload");
   };
 
+  const showUpdateBadgeOnSettings = hasUpdaterAttention(updaterStatus);
+
   return (
     <header className="sticky top-0 z-50 border-b border-border/80 bg-[rgba(6,11,23,0.88)] px-4 py-3 backdrop-blur-xl">
       <div className="flex items-center gap-3">
@@ -94,7 +95,7 @@ export default function TopNav() {
           </div>
           <div className="hidden sm:block">
             <p className="text-xs uppercase tracking-[0.28em] text-muted-foreground">Operion</p>
-            <p className="text-sm font-semibold tracking-tight text-foreground">Executive Control Layer</p>
+            <p className="text-sm font-semibold tracking-tight text-foreground">Executive Control</p>
           </div>
         </Link>
 
@@ -105,10 +106,9 @@ export default function TopNav() {
               item.to === "/"
                 ? location.pathname === item.to
                 : location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
-            const showUpdateBadge = item.to === "/configuracoes" && hasUpdaterAttention(updaterStatus);
 
             return (
-              <Link key={item.to} to={showUpdateBadge ? "/configuracoes?tab=atualizacoes" : item.to}>
+              <Link key={item.to} to={item.to}>
                 <Button
                   variant={isActive ? "default" : "ghost"}
                   size="sm"
@@ -120,7 +120,6 @@ export default function TopNav() {
                 >
                   {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
                   <span>{item.label}</span>
-                  {showUpdateBadge && <span className="h-2 w-2 rounded-full bg-warning" />}
                 </Button>
               </Link>
             );
@@ -189,6 +188,23 @@ export default function TopNav() {
               </DropdownMenu>
             );
           })}
+
+          {/* Configuracoes — always last */}
+          <Link to={showUpdateBadgeOnSettings ? "/configuracoes?tab=atualizacoes" : "/configuracoes"}>
+            <Button
+              variant={location.pathname === "/configuracoes" ? "default" : "ghost"}
+              size="sm"
+              className={cn(
+                "h-9 gap-2 rounded-xl px-3 text-xs",
+                compactNavigation ? "px-2.5" : "px-3.5",
+                location.pathname !== "/configuracoes" && "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              <span>Configuracoes</span>
+              {showUpdateBadgeOnSettings && <span className="h-2 w-2 rounded-full bg-warning" />}
+            </Button>
+          </Link>
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
@@ -200,11 +216,7 @@ export default function TopNav() {
                 {state.hasClientes ? ` | ${state.clientes.length} clientes` : ""}
               </span>
             </div>
-          ) : (
-            <div className="hidden rounded-full border border-border/70 bg-card/70 px-3 py-2 md:block">
-              <span className="text-xs text-muted-foreground">Camada executiva pronta para nova carga</span>
-            </div>
-          )}
+          ) : null}
 
           <Button variant="outline" size="sm" className="h-9 gap-2 rounded-xl text-xs" onClick={handleNewLoad}>
             <UploadIcon className="h-3.5 w-3.5" />
