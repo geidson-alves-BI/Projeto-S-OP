@@ -427,7 +427,7 @@ function buildComponents(
       label: "Impacto financeiro",
       available: financialImpactAvailable,
       detail: financialImpactAvailable
-        ? "Custos e investimento ja podem apoiar CFO e CEO."
+        ? "Custos e investimento ja consolidados para leitura executiva."
         : "Sem impacto financeiro consolidado para leitura executiva.",
     },
     {
