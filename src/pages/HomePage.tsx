@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Bot,
   BriefcaseBusiness,
-  Factory,
   FileText,
   Package,
   Settings2,
@@ -66,11 +65,11 @@ export default function HomePage() {
               </span>
               <div className="space-y-3">
                 <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-foreground">
-                  Uma camada de decisao pronta para Supply, CFO, CEO e COO
+                  Uma camada de decisao pronta para a gestao executiva
                 </h1>
                 <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
                   Carregue as bases de operacao para transformar dados em prioridades, impacto financeiro e acoes
-                  recomendadas. Atualizacoes, diagnosticos e integracoes ficam fora desta tela para manter foco.
+                  recomendadas.
                 </p>
               </div>
             </div>
@@ -86,7 +85,7 @@ export default function HomePage() {
                 <p className="mt-3 text-lg font-semibold text-foreground">
                   {integrationSettings.providerActive === "openai" ? "OpenAI ativo" : "Fallback local ativo"}
                 </p>
-                <p className="mt-2 text-sm text-muted-foreground">Ajuste provider, chave e modelo em Configuracoes para governanca da camada de IA.</p>
+                <p className="mt-2 text-sm text-muted-foreground">Ajuste provider, chave e modelo em Configuracoes.</p>
               </div>
               <div className="rounded-2xl border border-border/70 bg-background/40 p-5">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Operacao</p>
@@ -152,7 +151,7 @@ export default function HomePage() {
             id: "client-layer",
             title: "Camada de clientes ainda nao integrada",
             description: "A leitura executiva esta sem concentracao por cliente e perde sensibilidade comercial.",
-            impact: "Reduz precisao da priorizacao para Supply e diretoria.",
+            impact: "Reduz precisao da priorizacao e visibilidade comercial.",
             action: "Complementar a carga de clientes na proxima rodada.",
             to: "/demanda",
             tone: "medium" as const,
@@ -218,49 +217,49 @@ export default function HomePage() {
       title: "Atualizar leitura financeira",
       description: "Traduzir a estrategia operacional em investimento de estoque e compromissos de caixa.",
       to: "/financeiro",
-      impact: "Alinha Supply com CFO e caixa.",
+      impact: "Alinha estrategia operacional e financeira.",
       icon: BriefcaseBusiness,
     },
     {
       title: "Emitir pack executivo",
       description: "Consolidar resumo, historico, riscos e recomendacoes para a reuniao de decisao.",
       to: "/relatorios",
-      impact: "Acelera alinhamento entre CEO, COO e CFO.",
+      impact: "Acelera alinhamento entre as areas.",
       icon: FileText,
     },
     {
       title: "Interpretar com IA",
-      description: "Gerar leitura assistida por persona com contexto estruturado do ciclo atual.",
+      description: "Gerar leitura assistida com contexto estruturado do ciclo atual.",
       to: "/ia",
-      impact: `Provider ${integrationSettings.providerActive === "openai" ? "OpenAI" : "fallback local"} pronto para governanca.`,
+      impact: `Provider ${integrationSettings.providerActive === "openai" ? "OpenAI" : "fallback local"} pronto.`,
       icon: Sparkles,
     },
   ];
 
-  const personaShortcuts = [
+  const moduleShortcuts = [
     {
-      title: "Supply",
+      title: "Operacao e planejamento",
       description: "Volume, criticidade e politica de atendimento.",
       to: "/mts",
-      icon: Factory,
+      icon: TrendingUp,
     },
     {
-      title: "CFO",
+      title: "Financeiro",
       description: "Capital empregado, buffers e exposicao financeira.",
       to: "/financeiro",
       icon: BriefcaseBusiness,
     },
     {
-      title: "CEO",
+      title: "Relatorios",
       description: "Sintese executiva e alinhamento cross-functional.",
       to: "/relatorios",
       icon: FileText,
     },
     {
-      title: "COO",
-      description: "Planejamento, capacidade e risco de execucao.",
-      to: "/forecast",
-      icon: TrendingUp,
+      title: "Materia-prima",
+      description: "Cobertura, criticidade e risco de abastecimento.",
+      to: "/rm-sla",
+      icon: Package,
     },
   ];
 
@@ -484,7 +483,7 @@ export default function HomePage() {
 
           <div className="grid gap-3">
             <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Supply</p>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Operacao</p>
               <p className="mt-2 text-sm leading-6 text-foreground">
                 A base aponta {countMTS} itens com oportunidade de ajuste de politica e {countA} itens criticos no corte ABC.
               </p>
@@ -540,13 +539,13 @@ export default function HomePage() {
         <div className="flex items-center gap-2">
           <Package className="h-4 w-4 text-primary" />
           <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Acesso por persona</p>
-            <h2 className="text-xl font-semibold text-foreground">Experiencia executiva por papel</h2>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Acesso por modulo</p>
+            <h2 className="text-xl font-semibold text-foreground">Atalhos executivos</h2>
           </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {personaShortcuts.map((item) => {
+          {moduleShortcuts.map((item) => {
             const Icon = item.icon;
             return (
               <Link key={item.title} to={item.to} className="group rounded-2xl border border-border/70 bg-muted/20 p-5 transition-colors hover:border-primary/40 hover:bg-background/70">
@@ -573,10 +572,10 @@ export default function HomePage() {
                 <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">IA discreta</p>
               </div>
               <div className="space-y-2">
-                <h2 className="text-2xl font-semibold tracking-tight text-foreground">Interpretacao assistida, sem expor a tela principal</h2>
+                <h2 className="text-2xl font-semibold tracking-tight text-foreground">Interpretacao assistida</h2>
                 <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
                   A camada de IA fica separada da Home executiva. Use-a quando precisar transformar o ciclo atual em
-                  leitura por persona, perguntas de validacao e recomendacoes orientadas a impacto.
+                  leitura estruturada, perguntas de validacao e recomendacoes orientadas a impacto.
                 </p>
               </div>
               <div className="flex flex-wrap gap-3">

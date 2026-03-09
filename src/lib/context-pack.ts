@@ -15,7 +15,7 @@ const FRIENDLY_DESCRIPTION =
 
 const QUESTION_SUGGESTIONS = [
   "Quais sao os principais riscos desta operacao?",
-  "O que um CFO deveria priorizar nesta base?",
+  "O que a gestao deveria priorizar nesta base?",
   "Existem candidatos relevantes para MTS?",
   "Onde esta a maior concentracao de volume?",
   "Quais lacunas impedem uma analise executiva mais robusta?",
