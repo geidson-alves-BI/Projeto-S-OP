@@ -164,6 +164,98 @@ export type AnalyticsDataStatus = {
   };
 };
 
+export type UploadValidationStatus = "valid" | "partial" | "invalid" | "pending" | "missing";
+export type UploadReadinessStatus = "ready" | "partial" | "unavailable";
+export type UploadDatasetKey =
+  | "production"
+  | "sales_orders"
+  | "clients"
+  | "forecast_input"
+  | "bom"
+  | "raw_material_inventory"
+  | "finance_spreadsheets"
+  | "finance_documents";
+
+export type UploadReadinessKey =
+  | "overall"
+  | "forecast"
+  | "mts_mto"
+  | "raw_material"
+  | "finance"
+  | "executive_ai";
+
+export type UploadDataset = {
+  id: UploadDatasetKey;
+  name: string;
+  category: string;
+  storage_kind: "structured" | "document";
+  objective: string;
+  accepted_formats: string[];
+  required_columns: string[];
+  optional_columns: string[];
+  expected_columns: string[];
+  readiness_impact: string[];
+  uploaded: boolean;
+  available: boolean;
+  validation_status: UploadValidationStatus;
+  uploaded_at: string | null;
+  filename: string | null;
+  format: string | null;
+  row_count: number;
+  column_count: number;
+  columns_detected: string[];
+  latest_message: string;
+  history_count: number;
+  document_count: number;
+  storage_path: string | null;
+  last_upload_status: string;
+};
+
+export type UploadHistoryItem = {
+  dataset_id: UploadDatasetKey;
+  dataset_name: string;
+  category: string;
+  storage_kind: "structured" | "document";
+  filename: string;
+  uploaded_at: string;
+  format: string;
+  validation_status: UploadValidationStatus;
+  readiness_impact: string[];
+  impact_summary: string;
+  row_count: number;
+  column_count: number;
+  notes: string;
+};
+
+export type UploadReadinessItem = {
+  key: UploadReadinessKey;
+  label: string;
+  status: UploadReadinessStatus;
+  summary: string;
+  datasets: UploadDatasetKey[];
+  missing_datasets: string[];
+};
+
+export type UploadCenterStatus = {
+  coverage_percent: number;
+  available_dataset_count: number;
+  total_dataset_count: number;
+  datasets: UploadDataset[];
+  readiness: Record<UploadReadinessKey, UploadReadinessItem>;
+  history: UploadHistoryItem[];
+};
+
+export type StructuredUploadRegistrationRequest = {
+  dataset_id: Exclude<UploadDatasetKey, "forecast_input" | "bom" | "finance_spreadsheets" | "finance_documents" | "sales_orders">;
+  filename: string;
+  format: string;
+  validation_status: Exclude<UploadValidationStatus, "missing">;
+  row_count?: number;
+  column_count?: number;
+  columns_detected?: string[];
+  notes?: string | null;
+};
+
 export type RunSOPPipelineRequest = {
   forecast_inputs?: Record<string, unknown>[];
   file_format?: "none" | "csv" | "excel";

@@ -47,6 +47,7 @@ class BOMUploadRequest(BaseModel):
     raw_material_name_col: str = "raw_material_name"
     qty_per_unit_col: str = "qty_per_unit"
     unit_cost_col: str = "unit_cost"
+    source_filename: Optional[str] = None
 
 
 class MTSProductionSimulationItem(BaseModel):
@@ -70,6 +71,7 @@ class DemandForecastItem(BaseModel):
 
 class DemandForecastEngineRequest(BaseModel):
     items: List[DemandForecastItem]
+    source_filename: Optional[str] = None
 
 
 class RawMaterialForecastItem(BaseModel):
@@ -80,6 +82,20 @@ class RawMaterialForecastItem(BaseModel):
 
 class RawMaterialForecastRequest(BaseModel):
     items: List[RawMaterialForecastItem]
+
+
+UploadValidationStatus = Literal["valid", "partial", "invalid", "pending", "missing"]
+
+
+class StructuredUploadRegistrationRequest(BaseModel):
+    dataset_id: str
+    filename: str
+    format: str
+    validation_status: UploadValidationStatus = "valid"
+    row_count: int = Field(default=0, ge=0)
+    column_count: int = Field(default=0, ge=0)
+    columns_detected: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None
 
 
 class AIEvidence(BaseModel):

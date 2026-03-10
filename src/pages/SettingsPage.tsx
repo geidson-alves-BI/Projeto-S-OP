@@ -696,12 +696,12 @@ export default function SettingsPage() {
 
               <div className="grid gap-3">
                 <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Carga FG</p>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Base operacional</p>
                   <p className="mt-2 text-sm text-foreground">{state ? `${state.products.length} SKUs ativos` : "Sem dados carregados"}</p>
                   <p className="mt-1 text-xs text-muted-foreground">Ultima importacao: {formatTimestamp(lastFGImportAt)}</p>
                 </div>
                 <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Carga RM</p>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Cobertura de insumos</p>
                   <p className="mt-2 text-sm text-foreground">{rmData ? `${rmData.length} materiais ativos` : "Sem dados carregados"}</p>
                   <p className="mt-1 text-xs text-muted-foreground">Ultima importacao: {formatTimestamp(lastRMImportAt)}</p>
                 </div>

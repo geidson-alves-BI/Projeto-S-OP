@@ -40,9 +40,9 @@ export default function RMSlaPage() {
       <PageTransition className="p-6 space-y-4 max-w-2xl mx-auto text-center">
         <Shield className="h-10 w-10 text-muted-foreground mx-auto" />
         <h2 className="text-xl font-bold tracking-tight text-foreground">Gestão SLA — Matéria-Prima</h2>
-        <p className="text-sm text-muted-foreground">Nenhuma base RM carregada. Faça o upload primeiro.</p>
-        <Button variant="outline" className="font-mono text-sm" onClick={() => navigate("/rm-upload")}>
-          Ir para Upload RM
+        <p className="text-sm text-muted-foreground">Nenhuma base RM carregada. Use a Central de Upload para enviar a base de insumos.</p>
+        <Button variant="outline" className="font-mono text-sm" onClick={() => navigate("/upload")}>
+          Ir para Upload de Dados
         </Button>
       </PageTransition>
     );

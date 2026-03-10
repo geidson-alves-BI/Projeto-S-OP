@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import re
 from io import BytesIO
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
+from fastapi import File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -26,6 +31,7 @@ from .schemas import (
     RunSOPPipelineResponse,
     SLARequest,
     SLAResponse,
+    StructuredUploadRegistrationRequest,
     StrategyReportRequest,
 )
 from .simulation import simulate_mts_production as run_mts_production_simulation
@@ -35,6 +41,7 @@ from .strategy_report import (
     export_strategy_report_csv,
     export_strategy_report_excel,
 )
+from .upload_manifest import get_dataset_definition
 from .utils import ensure_datetime, to_dataframe
 
 app = FastAPI(title="Control Tower Engine", version="0.2.0")
@@ -48,6 +55,42 @@ app.add_middleware(
 )
 
 app.include_router(ai_router)
+
+RUNTIME_UPLOAD_ROOT = Path(__file__).resolve().parents[1] / "runtime_uploads"
+
+
+def _build_file_format(filename: str) -> str:
+    return Path(filename).suffix.lower() or ".bin"
+
+
+def _sanitize_filename(filename: str) -> str:
+    cleaned = Path(filename).name.strip() or "upload.bin"
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", cleaned)
+    return cleaned or "upload.bin"
+
+
+def _store_uploaded_file(dataset_id: str, filename: str, content: bytes) -> str:
+    target_dir = RUNTIME_UPLOAD_ROOT / dataset_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = _sanitize_filename(filename)
+    final_name = f"{uuid4().hex}_{safe_name}"
+    final_path = target_dir / final_name
+    final_path.write_bytes(content)
+    return str(final_path)
+
+
+def _read_tabular_upload(filename: str, content: bytes) -> list[dict[str, Any]]:
+    ext = _build_file_format(filename)
+    buffer = BytesIO(content)
+    if ext == ".csv":
+        df = pd.read_csv(buffer, sep=None, engine="python")
+    elif ext in {".xlsx", ".xls"}:
+        df = pd.read_excel(buffer)
+    else:
+        raise ValueError(f"Unsupported tabular format for upload: {ext}")
+
+    df = df.fillna("")
+    return df.to_dict(orient="records")
 
 
 @app.get("/")
@@ -137,8 +180,34 @@ def export_strategy_report(
 
 
 @app.post("/analytics/upload_bom")
-def upload_bom(req: BOMUploadRequest):
+async def upload_bom(request: Request):
+    source_filename = "bom_upload.json"
+    source_rows: list[dict[str, Any]] = []
     try:
+        content_type = request.headers.get("content-type", "").lower()
+        if content_type.startswith("multipart/form-data"):
+            form = await request.form()
+            upload = form.get("file")
+            if upload is None or not hasattr(upload, "filename"):
+                raise HTTPException(status_code=400, detail="Missing BOM file in multipart payload.")
+            upload_file = upload
+            source_filename = getattr(upload_file, "filename", None) or "bom_upload.csv"
+            source_rows = _read_tabular_upload(source_filename, await upload_file.read())
+            req = BOMUploadRequest(
+                rows=source_rows,
+                product_code_col=str(form.get("product_code_col") or "product_code"),
+                raw_material_code_col=str(form.get("raw_material_code_col") or "raw_material_code"),
+                raw_material_name_col=str(form.get("raw_material_name_col") or "raw_material_name"),
+                qty_per_unit_col=str(form.get("qty_per_unit_col") or "qty_per_unit"),
+                unit_cost_col=str(form.get("unit_cost_col") or "unit_cost"),
+                source_filename=source_filename,
+            )
+        else:
+            payload = await request.json()
+            req = BOMUploadRequest.model_validate(payload)
+            source_filename = req.source_filename or source_filename
+            source_rows = list(req.rows)
+
         bom_df = normalize_bom_rows(
             rows=req.rows,
             product_code_col=req.product_code_col,
@@ -148,9 +217,29 @@ def upload_bom(req: BOMUploadRequest):
             unit_cost_col=req.unit_cost_col,
         )
     except ValueError as exc:
+        analytics_store.record_dataset_upload(
+            "bom",
+            filename=source_filename,
+            file_format=_build_file_format(source_filename),
+            validation_status="invalid",
+            row_count=len(source_rows),
+            column_count=len(source_rows[0].keys()) if source_rows else 0,
+            columns_detected=list(source_rows[0].keys()) if source_rows else [],
+            notes=str(exc),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     analytics_store.set_bom(bom_df)
+    analytics_store.record_dataset_upload(
+        "bom",
+        filename=source_filename,
+        file_format=_build_file_format(source_filename),
+        validation_status="valid",
+        row_count=int(len(bom_df)),
+        column_count=len(list(bom_df.columns)),
+        columns_detected=[str(column) for column in bom_df.columns],
+        notes=f"{len(bom_df)} linhas validadas para estrutura de produto.",
+    )
     return {
         "count": int(len(bom_df)),
         "products": int(bom_df["product_code"].nunique() if not bom_df.empty else 0),
@@ -195,6 +284,20 @@ def simulate_mts_production(req: MTSProductionSimulationRequest):
 def forecast_demand(req: DemandForecastEngineRequest):
     forecast_df = build_demand_forecast([item.model_dump() for item in req.items])
     analytics_store.set_forecast(forecast_df)
+    analytics_store.record_dataset_upload(
+        "forecast_input",
+        filename=req.source_filename or "forecast_input.json",
+        file_format=_build_file_format(req.source_filename or "forecast_input.json"),
+        validation_status="valid" if not forecast_df.empty else "partial",
+        row_count=len(req.items),
+        column_count=len(req.items[0].model_dump().keys()) if req.items else 0,
+        columns_detected=list(req.items[0].model_dump().keys()) if req.items else [],
+        notes=(
+            f"Forecast consolidado com {len(forecast_df)} registros."
+            if not forecast_df.empty
+            else "Forecast processado, mas sem registros consolidados."
+        ),
+    )
     return {"items": forecast_df.to_dict(orient="records")}
 
 
@@ -334,6 +437,82 @@ def run_sop_pipeline(req: RunSOPPipelineRequest):
 def context_pack():
     payload = build_context_pack(analytics_store.get_session_snapshot())
     return payload
+
+
+@app.get("/analytics/forecast_results")
+def forecast_results():
+    forecast_df = analytics_store.get_demand_forecast()
+    if forecast_df is None or forecast_df.empty:
+        return {"items": [], "rowCount": 0}
+    return {"items": forecast_df.to_dict(orient="records"), "rowCount": int(len(forecast_df))}
+
+
+@app.get("/analytics/upload_center")
+def upload_center():
+    return analytics_store.get_upload_center_payload()
+
+
+@app.post("/analytics/register_structured_upload")
+def register_structured_upload(req: StructuredUploadRegistrationRequest):
+    try:
+        analytics_store.record_dataset_upload(
+            req.dataset_id,
+            filename=req.filename,
+            file_format=req.format,
+            validation_status=req.validation_status,
+            row_count=req.row_count,
+            column_count=req.column_count,
+            columns_detected=req.columns_detected,
+            notes=req.notes,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Unknown dataset_id: {req.dataset_id}") from exc
+    return analytics_store.get_upload_center_payload()
+
+
+@app.post("/analytics/upload_dataset_file")
+async def upload_dataset_file(
+    dataset_id: str = Form(...),
+    file: UploadFile = File(...),
+):
+    try:
+        definition = get_dataset_definition(dataset_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Unknown dataset_id: {dataset_id}") from exc
+
+    filename = file.filename or f"{dataset_id}_upload"
+    file_format = _build_file_format(filename)
+    if file_format not in set(definition["accepted_formats"]):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported format for {dataset_id}: {file_format}",
+        )
+
+    content = await file.read()
+    storage_path = _store_uploaded_file(dataset_id, filename, content)
+
+    default_notes = {
+        "sales_orders": "Arquivo comercial armazenado; integracao analitica preparada para a proxima etapa.",
+        "finance_spreadsheets": "Planilha financeira armazenada; leitura estruturada fica preparada para evolucao.",
+        "finance_documents": "Documento armazenado para futura leitura inteligente.",
+    }
+    validation_status = "partial" if dataset_id in {"sales_orders", "finance_spreadsheets", "finance_documents"} else "valid"
+
+    payload = analytics_store.record_dataset_upload(
+        dataset_id,
+        filename=filename,
+        file_format=file_format,
+        validation_status=validation_status,
+        row_count=0,
+        column_count=0,
+        columns_detected=[],
+        notes=default_notes.get(dataset_id, "Arquivo armazenado na central de dados."),
+        storage_path=storage_path,
+    )
+    return {
+        "dataset": payload,
+        "storagePath": storage_path,
+    }
 
 
 @app.get("/analytics/data_status")

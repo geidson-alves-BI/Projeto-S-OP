@@ -7,9 +7,16 @@ interface FileUploadProps {
   file: File | null;
   onFileSelect: (file: File) => void;
   accept?: string;
+  description?: string;
 }
 
-export default function FileUpload({ label, file, onFileSelect, accept = ".xlsx,.xls,.csv" }: FileUploadProps) {
+export default function FileUpload({
+  label,
+  file,
+  onFileSelect,
+  accept = ".xlsx,.xls,.csv",
+  description,
+}: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -55,7 +62,9 @@ export default function FileUpload({ label, file, onFileSelect, accept = ".xlsx,
         <>
           <Upload className="mx-auto mb-3 h-8 w-8 text-muted-foreground transition-transform group-hover:scale-110 group-hover:text-primary" />
           <p className="text-sm font-medium text-foreground">{label}</p>
-          <p className="mt-1 text-xs text-muted-foreground">Arraste ou clique para selecionar (.xlsx / .csv)</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {description ?? `Arraste ou clique para selecionar (${accept.replaceAll(",", " / ")})`}
+          </p>
         </>
       )}
     </div>

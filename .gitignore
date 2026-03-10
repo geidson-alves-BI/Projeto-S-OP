@@ -20,6 +20,8 @@ __pycache__/
 build/backend.exe
 build/backend-build/
 build/backend-dist/
+backend/build/
+backend/dist/
 
 # Desktop/release artifacts
 dist/

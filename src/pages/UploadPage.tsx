@@ -1,352 +1,556 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-  ArrowRight,
-  CheckCircle2,
-  Database,
-  Loader2,
-  RefreshCcw,
-  Upload as UploadIcon,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import FileUpload from "@/components/FileUpload";
+import { useMemo, useState } from "react";
+import { Activity, Database, FileText, RefreshCcw, ShieldCheck } from "lucide-react";
 import PageTransition from "@/components/PageTransition";
+import UploadDatasetCard, { type UploadFeedback } from "@/components/UploadDatasetCard";
+import { Button } from "@/components/ui/button";
 import { useAppData } from "@/contexts/AppDataContext";
-import { buildContextPackViewModel, mergeContextPackWithLoadedData } from "@/lib/context-pack";
-import { getAnalyticsDataStatus, getContextPack } from "@/lib/api";
-import type { AnalyticsDataStatus, ContextPack } from "@/types/analytics";
+import { useUploadCenter } from "@/hooks/use-upload-center";
+import { parseFile } from "@/lib/fileParser";
+import {
+  formatValidationStatus,
+  buildStructuredUploadPayload,
+  formatReadinessStatus,
+  formatTimestamp,
+  getDataset,
+  getStatusClasses,
+  parseForecastInputRows,
+} from "@/lib/upload-center";
+import { postJSON, postMultipart, registerStructuredUpload, uploadDatasetFile } from "@/lib/api";
+import type { UploadDatasetKey } from "@/types/analytics";
 
-type UploadStatus = "carregado" | "parcial" | "ausente";
+type FeedbackMap = Partial<Record<UploadDatasetKey, UploadFeedback | null>>;
+type LoadingMap = Partial<Record<UploadDatasetKey, boolean>>;
 
-type UploadCard = {
-  key: string;
-  label: string;
-  status: UploadStatus;
-  actionLabel: string | null;
-  actionTo: string | null;
-};
-
-function getStatusClasses(status: UploadStatus) {
-  if (status === "carregado") {
-    return "border-success/30 bg-success/10 text-success";
-  }
-  if (status === "parcial") {
-    return "border-warning/30 bg-warning/10 text-warning";
-  }
-  return "border-border/70 bg-muted/20 text-muted-foreground";
-}
-
-function getStatusLabel(status: UploadStatus) {
-  if (status === "carregado") return "Carregado";
-  if (status === "parcial") return "Parcial";
-  return "Ausente";
-}
-
-function hasContent(value: unknown) {
-  if (value === null || value === undefined) return false;
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length > 0;
-  return true;
-}
+const READINESS_ORDER = ["overall", "forecast", "mts_mto", "raw_material", "finance", "executive_ai"] as const;
 
 export default function UploadPage() {
-  const navigate = useNavigate();
   const {
     state,
-    fileProd,
-    fileCli,
-    setFileProd,
-    setFileCli,
-    loading,
-    error,
-    handleLoad,
     rmData,
-    lastFGImportAt,
-    lastClientesImportAt,
+    loading: contextLoading,
+    error: contextError,
+    loadProductionFile,
+    loadClientsFile,
+    loadRawMaterialFile,
   } = useAppData();
+  const { uploadCenter, loading, error, refresh } = useUploadCenter(true);
 
-  const [backendStatus, setBackendStatus] = useState<AnalyticsDataStatus | null>(null);
-  const [backendContext, setBackendContext] = useState<ContextPack | null>(null);
-  const [backendLoading, setBackendLoading] = useState(true);
-  const [backendError, setBackendError] = useState<string | null>(null);
+  const [datasetLoading, setDatasetLoading] = useState<LoadingMap>({});
+  const [feedback, setFeedback] = useState<FeedbackMap>({});
 
-  useEffect(() => {
-    let active = true;
+  const [productionFile, setProductionFile] = useState<File | null>(null);
+  const [salesOrdersFile, setSalesOrdersFile] = useState<File | null>(null);
+  const [clientsFile, setClientsFile] = useState<File | null>(null);
+  const [forecastFile, setForecastFile] = useState<File | null>(null);
+  const [bomFile, setBomFile] = useState<File | null>(null);
+  const [rawMaterialFile, setRawMaterialFile] = useState<File | null>(null);
+  const [financeSheetsFile, setFinanceSheetsFile] = useState<File | null>(null);
+  const [financeDocumentsFile, setFinanceDocumentsFile] = useState<File | null>(null);
 
-    const loadBackendStatus = async () => {
-      try {
-        setBackendLoading(true);
-        setBackendError(null);
+  const datasetMap = useMemo(
+    () => new Map(uploadCenter?.datasets.map((dataset) => [dataset.id, dataset]) ?? []),
+    [uploadCenter],
+  );
 
-        const [statusPayload, contextPayload] = await Promise.all([
-          getAnalyticsDataStatus(),
-          getContextPack().catch(() => null),
-        ]);
+  const availableCount = uploadCenter?.available_dataset_count ?? 0;
+  const totalCount = uploadCenter?.total_dataset_count ?? 0;
+  const coveragePercent = uploadCenter?.coverage_percent ?? 0;
+  const historyCount = uploadCenter?.history.length ?? 0;
 
-        if (!active) return;
+  const executeUpload = async (
+    datasetId: UploadDatasetKey,
+    action: () => Promise<UploadFeedback>,
+  ) => {
+    try {
+      setDatasetLoading((current) => ({ ...current, [datasetId]: true }));
+      setFeedback((current) => ({ ...current, [datasetId]: null }));
+      const result = await action();
+      await refresh();
+      setFeedback((current) => ({ ...current, [datasetId]: result }));
+    } catch (requestError) {
+      const message = requestError instanceof Error ? requestError.message : String(requestError);
+      setFeedback((current) => ({
+        ...current,
+        [datasetId]: {
+          tone: "error",
+          message,
+        },
+      }));
+    } finally {
+      setDatasetLoading((current) => ({ ...current, [datasetId]: false }));
+    }
+  };
 
-        setBackendStatus(statusPayload);
-        setBackendContext(contextPayload);
-      } catch (requestError) {
-        if (!active) return;
-        setBackendError(requestError instanceof Error ? requestError.message : String(requestError));
-      } finally {
-        if (active) setBackendLoading(false);
+  const handleProductionUpload = async () => {
+    if (!productionFile) {
+      return;
+    }
+
+    await executeUpload("production", async () => {
+      const result = await loadProductionFile(productionFile);
+      await registerStructuredUpload(
+        buildStructuredUploadPayload(
+          "production",
+          productionFile,
+          result.rowCount,
+          result.columns,
+          "valid",
+          `${result.productsCount} produtos preparados para leitura executiva.`,
+        ),
+      );
+      setProductionFile(null);
+      return {
+        tone: "success",
+        message: `${result.productsCount} produtos e ${result.monthCount} meses liberados para o modulo operacional.`,
+      };
+    });
+  };
+
+  const handleSalesOrdersUpload = async () => {
+    if (!salesOrdersFile) {
+      return;
+    }
+
+    await executeUpload("sales_orders", async () => {
+      await uploadDatasetFile("sales_orders", salesOrdersFile);
+      setSalesOrdersFile(null);
+      return {
+        tone: "info",
+        message: "Carteira comercial registrada. A integracao analitica ficou preparada para a proxima etapa.",
+      };
+    });
+  };
+
+  const handleClientsUpload = async () => {
+    if (!clientsFile) {
+      return;
+    }
+
+    await executeUpload("clients", async () => {
+      const result = await loadClientsFile(clientsFile);
+      await registerStructuredUpload(
+        buildStructuredUploadPayload(
+          "clients",
+          clientsFile,
+          result.rowCount,
+          result.columns,
+          "valid",
+          result.hasProductionLoaded
+            ? "Base de clientes conectada ao historico operacional."
+            : "Base de clientes registrada e aguardando producao para consolidacao cruzada.",
+        ),
+      );
+      setClientsFile(null);
+      return {
+        tone: "success",
+        message: result.hasProductionLoaded
+          ? "Clientes conectados ao historico para leitura de concentracao comercial."
+          : "Clientes registrados; a conexao completa acontece quando a base de producao estiver carregada.",
+      };
+    });
+  };
+
+  const handleForecastUpload = async () => {
+    if (!forecastFile) {
+      return;
+    }
+
+    await executeUpload("forecast_input", async () => {
+      const rows = await parseFile(forecastFile);
+      const items = parseForecastInputRows(rows);
+
+      if (items.length === 0) {
+        throw new Error("A base de forecast precisa de product_code e ao menos um historico de demanda.");
       }
-    };
 
-    void loadBackendStatus();
-    return () => { active = false; };
-  }, [state, rmData]);
+      await postJSON("/analytics/forecast_demand", {
+        items,
+        source_filename: forecastFile.name,
+      });
+      setForecastFile(null);
+      return {
+        tone: "success",
+        message: `${items.length} linhas de forecast enviadas para consolidacao analitica.`,
+      };
+    });
+  };
 
-  const effectiveContext = useMemo(
-    () => mergeContextPackWithLoadedData(backendContext, state, rmData),
-    [backendContext, state, rmData],
-  );
+  const handleBomUpload = async () => {
+    if (!bomFile) {
+      return;
+    }
 
-  const contextViewModel = useMemo(
-    () => buildContextPackViewModel(effectiveContext, state, rmData),
-    [effectiveContext, state, rmData],
-  );
+    await executeUpload("bom", async () => {
+      const formData = new FormData();
+      formData.append("file", bomFile);
+      const response = (await postMultipart("/analytics/upload_bom", formData)) as {
+        count?: number;
+        products?: number;
+      };
+      setBomFile(null);
+      return {
+        tone: "success",
+        message: `${response.count ?? 0} linhas e ${response.products ?? 0} produtos conectados na estrutura de insumos.`,
+      };
+    });
+  };
 
-  const cards = useMemo<UploadCard[]>(() => {
-    const hasFG = Boolean(state?.products.length);
-    const hasClientes = Boolean(state?.hasClientes);
-    const hasForecast = Boolean(backendStatus?.forecast.loaded) || hasContent(effectiveContext?.forecast_summary);
-    const hasRMBase = Boolean(rmData?.length);
-    const hasRMContext = Boolean(backendStatus?.rawMaterialForecast.loaded) || hasContent(effectiveContext?.raw_material_impact);
-    const hasBOM = Boolean(backendStatus?.bom.loaded);
-    const hasFinancialContext = hasContent(effectiveContext?.financial_impact);
+  const handleRawMaterialUpload = async () => {
+    if (!rawMaterialFile) {
+      return;
+    }
 
-    return [
-      {
-        key: "fg",
-        label: "FG / Producao",
-        status: hasFG ? "carregado" : "ausente",
-        actionLabel: null,
-        actionTo: null,
-      },
-      {
-        key: "clientes",
-        label: "Clientes",
-        status: hasClientes ? "carregado" : "ausente",
-        actionLabel: null,
-        actionTo: null,
-      },
-      {
-        key: "abc_xyz",
-        label: "ABC / XYZ",
-        status: hasFG ? (backendStatus?.strategyReport.loaded ? "carregado" : "parcial") : "ausente",
-        actionLabel: "Abrir ABC / XYZ",
-        actionTo: "/abc-xyz",
-      },
-      {
-        key: "forecast",
-        label: "Forecast",
-        status: backendStatus?.forecast.loaded ? "carregado" : hasForecast ? "parcial" : "ausente",
-        actionLabel: "Abrir Forecast",
-        actionTo: "/forecast",
-      },
-      {
-        key: "materia_prima",
-        label: "Materia-prima",
-        status: hasRMBase && hasRMContext ? "carregado" : hasRMBase || hasRMContext ? "parcial" : "ausente",
-        actionLabel: "Abrir Materia-prima",
-        actionTo: "/rm-upload",
-      },
-      {
-        key: "bom",
-        label: "BOM",
-        status: hasBOM ? "carregado" : "ausente",
-        actionLabel: "Abrir BOM / RM",
-        actionTo: "/rm-upload",
-      },
-      {
-        key: "financeiro",
-        label: "Financeiro",
-        status:
-          backendStatus?.mtsSimulation.loaded && hasFinancialContext
-            ? "carregado"
-            : hasFinancialContext
-              ? "parcial"
-              : "ausente",
-        actionLabel: "Abrir Financeiro",
-        actionTo: "/financeiro",
-      },
-      {
-        key: "custos",
-        label: "Custos",
-        status: hasFinancialContext ? "parcial" : "ausente",
-        actionLabel: null,
-        actionTo: null,
-      },
-      {
-        key: "pedidos_futuros",
-        label: "Pedidos futuros",
-        status: backendStatus?.forecast.loaded ? "parcial" : "ausente",
-        actionLabel: backendStatus?.forecast.loaded ? "Abrir Forecast" : null,
-        actionTo: backendStatus?.forecast.loaded ? "/forecast" : null,
-      },
-    ];
-  }, [backendStatus, effectiveContext, rmData, state]);
+    await executeUpload("raw_material_inventory", async () => {
+      const result = await loadRawMaterialFile(rawMaterialFile);
+      const validationStatus = result.validation.valid ? "valid" : "invalid";
+      await registerStructuredUpload(
+        buildStructuredUploadPayload(
+          "raw_material_inventory",
+          rawMaterialFile,
+          result.rowCount,
+          result.columns,
+          validationStatus,
+          result.validation.valid
+            ? "Estoque de materia-prima pronto para cobertura e SLA."
+            : `Colunas obrigatorias ausentes: ${result.validation.missing.join(", ")}`,
+        ),
+      );
+      if (!result.validation.valid) {
+        return {
+          tone: "error",
+          message: `Upload registrado com pendencia. Faltando: ${result.validation.missing.join(", ")}.`,
+        };
+      }
+      setRawMaterialFile(null);
+      return {
+        tone: "success",
+        message: `${result.rowCount} linhas de estoque de materia-prima prontas para cobertura e risco.`,
+      };
+    });
+  };
 
-  const loadedCount = cards.filter((c) => c.status === "carregado").length;
-  const partialCount = cards.filter((c) => c.status === "parcial").length;
-  const missingCount = cards.filter((c) => c.status === "ausente").length;
+  const handleFinanceSheetsUpload = async () => {
+    if (!financeSheetsFile) {
+      return;
+    }
+
+    await executeUpload("finance_spreadsheets", async () => {
+      await uploadDatasetFile("finance_spreadsheets", financeSheetsFile);
+      setFinanceSheetsFile(null);
+      return {
+        tone: "info",
+        message: "Planilha financeira registrada. A camada de leitura estruturada ficou preparada para a proxima etapa.",
+      };
+    });
+  };
+
+  const handleFinanceDocumentsUpload = async () => {
+    if (!financeDocumentsFile) {
+      return;
+    }
+
+    await executeUpload("finance_documents", async () => {
+      await uploadDatasetFile("finance_documents", financeDocumentsFile);
+      setFinanceDocumentsFile(null);
+      return {
+        tone: "info",
+        message: "Documento financeiro anexado. O pipeline ficou preparado para leitura inteligente futura.",
+      };
+    });
+  };
 
   return (
     <PageTransition className="p-6 space-y-6">
-      {/* Header */}
-      <section className="relative overflow-hidden rounded-[28px] border border-border/70 bg-card/90 px-6 py-7 shadow-[0_24px_80px_rgba(2,6,23,0.35)]">
+      <section className="relative overflow-hidden rounded-[30px] border border-border/70 bg-card/90 px-6 py-7 shadow-[0_24px_80px_rgba(2,6,23,0.35)]">
         <div
-          className="pointer-events-none absolute inset-0 opacity-85"
+          className="pointer-events-none absolute inset-0 opacity-90"
           style={{
             background:
-              "radial-gradient(circle at top left, rgba(14,165,233,0.18), transparent 32%), radial-gradient(circle at right, rgba(56,189,248,0.14), transparent 24%), linear-gradient(135deg, rgba(15,23,42,0.18), rgba(2,6,23,0.58))",
+              "radial-gradient(circle at top left, rgba(14,165,233,0.18), transparent 32%), radial-gradient(circle at right, rgba(251,191,36,0.16), transparent 28%), linear-gradient(135deg, rgba(15,23,42,0.12), rgba(2,6,23,0.62))",
           }}
         />
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2">
-            <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] font-mono uppercase tracking-[0.28em] text-primary">
+
+        <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+          <div className="space-y-4">
+            <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-primary">
               Upload de Dados
             </span>
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground">Central de bases do Operion</h1>
-            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-              Carregue e acompanhe o status de cada base necessaria para alimentar a plataforma.
-            </p>
+            <div className="space-y-2">
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">Central de ingestao e prontidao analitica</h1>
+              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                Toda a ingestao do Operion passa por esta central. As demais abas ficam orientadas a leitura, simulacao
+                e decisao, enquanto esta tela controla cobertura analitica, dicionario de dados e governanca dos uploads.
+              </p>
+            </div>
           </div>
-          <Button variant="outline" className="gap-2" onClick={() => window.location.reload()}>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Bases disponiveis</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">
+                {availableCount}/{totalCount}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Cobertura analitica</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{coveragePercent}%</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Historico de uploads</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{historyCount}</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Camada local ativa</p>
+              <p className="mt-2 text-sm font-medium text-foreground">
+                {state ? `${state.products.length} produtos carregados` : "Sem producao ativa"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {rmData ? `${rmData.length} insumos em memoria` : "Sem estoque de materia-prima em memoria"}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative mt-6 flex flex-wrap items-center gap-3">
+          <Button variant="outline" className="gap-2" onClick={() => void refresh()}>
             <RefreshCcw className="h-4 w-4" />
-            Atualizar
+            Atualizar painel
           </Button>
+          <p className="text-xs text-muted-foreground">
+            Ultima leitura central: {formatTimestamp(uploadCenter?.history[0]?.uploaded_at ?? null)}
+          </p>
         </div>
       </section>
 
-      {/* Upload principal + checklist lado a lado */}
-      <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="metric-card space-y-4">
-          <div className="space-y-1">
-            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Carga principal</p>
-            <h2 className="text-xl font-semibold text-foreground">FG e Clientes</h2>
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-primary" />
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Prontidao de dados</p>
+            <h2 className="text-xl font-semibold text-foreground">Painel de cobertura e prontidao analitica</h2>
           </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <FileUpload label="FG / Producao" file={fileProd} onFileSelect={(file) => setFileProd(file)} />
-            <FileUpload label="Clientes (opcional)" file={fileCli} onFileSelect={(file) => setFileCli(file)} />
-          </div>
-
-          {error && (
-            <div className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {error}
-            </div>
-          )}
-
-          <Button onClick={handleLoad} disabled={!fileProd || loading} className="gap-2">
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadIcon className="h-4 w-4" />}
-            {loading ? "Processando..." : "Carregar bases"}
-          </Button>
         </div>
 
-        {/* Checklist simplificado */}
-        <div className="metric-card space-y-4">
-          <div className="space-y-1">
-            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Prontidao</p>
-            <h2 className="text-xl font-semibold text-foreground">Verificacao rapida</h2>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-2xl border border-success/30 bg-success/10 p-4 text-center">
-              <p className="text-2xl font-semibold text-foreground">{loadedCount}</p>
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mt-1">Carregadas</p>
-            </div>
-            <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-center">
-              <p className="text-2xl font-semibold text-foreground">{partialCount}</p>
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mt-1">Parciais</p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-muted/20 p-4 text-center">
-              <p className="text-2xl font-semibold text-foreground">{missingCount}</p>
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mt-1">Ausentes</p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground">Cobertura do contexto</span>
-              <span className="text-lg font-semibold text-foreground">{contextViewModel.coveragePercent}%</span>
-            </div>
-          </div>
-
-          {backendLoading && <p className="text-xs font-mono text-muted-foreground">Lendo status do backend...</p>}
-          {backendError && <p className="text-xs font-mono text-destructive">{backendError}</p>}
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {READINESS_ORDER.map((key) => {
+            const item = uploadCenter?.readiness[key];
+            if (!item) {
+              return null;
+            }
+            return (
+              <article key={item.key} className="metric-card space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">{item.label}</p>
+                    <h3 className="mt-2 text-lg font-semibold text-foreground">{formatReadinessStatus(item.status)}</h3>
+                  </div>
+                  <span className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.22em] ${getStatusClasses(item.status)}`}>
+                    {item.status}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">{item.summary}</p>
+                <p className="text-xs text-muted-foreground">
+                  {item.missing_datasets.length > 0
+                    ? `Faltando: ${item.missing_datasets.join(", ")}`
+                    : "Cobertura registrada para este modulo."}
+                </p>
+              </article>
+            );
+          })}
         </div>
       </section>
 
-      {/* Grid de bases — compacto */}
+      {(error || contextError) && (
+        <section className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error ?? contextError}
+        </section>
+      )}
+
+      {(loading || contextLoading) && (
+        <section className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+          Atualizando a central de upload e os indicadores executivos...
+        </section>
+      )}
+
       <section className="space-y-4">
         <div className="flex items-center gap-2">
           <Database className="h-4 w-4 text-primary" />
-          <h2 className="text-xl font-semibold text-foreground">Bases disponiveis</h2>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Operacoes e demanda</p>
+            <h2 className="text-xl font-semibold text-foreground">Bases estruturadas do ciclo operacional</h2>
+          </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {cards.map((card) => (
-            <div
-              key={card.key}
-              className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-card/80 px-4 py-3 transition-colors hover:border-primary/30"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.2em] ${getStatusClasses(card.status)}`}>
-                  {getStatusLabel(card.status)}
-                </span>
-                <span className="text-sm font-medium text-foreground truncate">{card.label}</span>
-              </div>
-              {card.actionLabel && card.actionTo ? (
-                <Button variant="ghost" size="sm" className="shrink-0 gap-1 text-xs text-primary" onClick={() => navigate(card.actionTo!)}>
-                  {card.actionLabel}
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </Button>
-              ) : null}
-            </div>
-          ))}
+        <div className="space-y-4">
+          {getDataset(uploadCenter, "production") ? (
+            <UploadDatasetCard
+              dataset={datasetMap.get("production")!}
+              file={productionFile}
+              onFileSelect={setProductionFile}
+              onUpload={handleProductionUpload}
+              loading={Boolean(datasetLoading.production)}
+              feedback={feedback.production}
+              actionLabel="Atualizar producao"
+            />
+          ) : null}
+
+          {getDataset(uploadCenter, "sales_orders") ? (
+            <UploadDatasetCard
+              dataset={datasetMap.get("sales_orders")!}
+              file={salesOrdersFile}
+              onFileSelect={setSalesOrdersFile}
+              onUpload={handleSalesOrdersUpload}
+              loading={Boolean(datasetLoading.sales_orders)}
+              feedback={feedback.sales_orders}
+              actionLabel="Registrar vendas / pedidos"
+            />
+          ) : null}
+
+          {getDataset(uploadCenter, "clients") ? (
+            <UploadDatasetCard
+              dataset={datasetMap.get("clients")!}
+              file={clientsFile}
+              onFileSelect={setClientsFile}
+              onUpload={handleClientsUpload}
+              loading={Boolean(datasetLoading.clients)}
+              feedback={feedback.clients}
+              actionLabel="Atualizar clientes"
+            />
+          ) : null}
         </div>
       </section>
 
-      {/* Disponibilidade e lacunas */}
-      <section className="grid gap-4 xl:grid-cols-2">
-        <div className="metric-card space-y-3">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-success" />
-            <h2 className="text-lg font-semibold text-foreground">Disponivel</h2>
-          </div>
-          <div className="grid gap-2">
-            {contextViewModel.inputsAvailable
-              .filter((s) => s.available)
-              .map((s) => (
-                <div key={s.key} className="rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-sm text-foreground">
-                  {s.label}
-                </div>
-              ))}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-primary" />
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Planejamento e supply</p>
+            <h2 className="text-xl font-semibold text-foreground">Bases para previsao, politica e insumos</h2>
           </div>
         </div>
 
-        <div className="metric-card space-y-3">
-          <div className="flex items-center gap-2">
-            <Database className="h-4 w-4 text-warning" />
-            <h2 className="text-lg font-semibold text-foreground">Lacunas</h2>
+        <div className="space-y-4">
+          {getDataset(uploadCenter, "forecast_input") ? (
+            <UploadDatasetCard
+              dataset={datasetMap.get("forecast_input")!}
+              file={forecastFile}
+              onFileSelect={setForecastFile}
+              onUpload={handleForecastUpload}
+              loading={Boolean(datasetLoading.forecast_input)}
+              feedback={feedback.forecast_input}
+              actionLabel="Consolidar forecast"
+            />
+          ) : null}
+
+          {getDataset(uploadCenter, "bom") ? (
+            <UploadDatasetCard
+              dataset={datasetMap.get("bom")!}
+              file={bomFile}
+              onFileSelect={setBomFile}
+              onUpload={handleBomUpload}
+              loading={Boolean(datasetLoading.bom)}
+              feedback={feedback.bom}
+              actionLabel="Atualizar estrutura de produto"
+            />
+          ) : null}
+
+          {getDataset(uploadCenter, "raw_material_inventory") ? (
+            <UploadDatasetCard
+              dataset={datasetMap.get("raw_material_inventory")!}
+              file={rawMaterialFile}
+              onFileSelect={setRawMaterialFile}
+              onUpload={handleRawMaterialUpload}
+              loading={Boolean(datasetLoading.raw_material_inventory)}
+              feedback={feedback.raw_material_inventory}
+              actionLabel="Atualizar estoque de materia-prima"
+            />
+          ) : null}
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-primary" />
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Financeiro e governanca</p>
+            <h2 className="text-xl font-semibold text-foreground">Planilhas e documentos para leitura executiva</h2>
           </div>
-          <div className="grid gap-2">
-            {contextViewModel.limitations.length > 0 ? (
-              contextViewModel.limitations.map((l, i) => (
-                <div key={i} className="rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-foreground">
-                  {l}
-                </div>
-              ))
-            ) : (
-              <div className="rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-sm text-foreground">
-                Cobertura completa para analise executiva.
-              </div>
-            )}
+        </div>
+
+        <div className="space-y-4">
+          {getDataset(uploadCenter, "finance_spreadsheets") ? (
+            <UploadDatasetCard
+              dataset={datasetMap.get("finance_spreadsheets")!}
+              file={financeSheetsFile}
+              onFileSelect={setFinanceSheetsFile}
+              onUpload={handleFinanceSheetsUpload}
+              loading={Boolean(datasetLoading.finance_spreadsheets)}
+              feedback={feedback.finance_spreadsheets}
+              actionLabel="Registrar planilha financeira"
+            />
+          ) : null}
+
+          {getDataset(uploadCenter, "finance_documents") ? (
+            <UploadDatasetCard
+              dataset={datasetMap.get("finance_documents")!}
+              file={financeDocumentsFile}
+              onFileSelect={setFinanceDocumentsFile}
+              onUpload={handleFinanceDocumentsUpload}
+              loading={Boolean(datasetLoading.finance_documents)}
+              feedback={feedback.finance_documents}
+              actionLabel="Anexar documento financeiro"
+              description="Formatos aceitos: .pdf, .xlsx, .xls, .csv, .png, .jpg, .jpeg, .webp, .txt, .docx"
+            />
+          ) : null}
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Database className="h-4 w-4 text-primary" />
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Historico e governanca</p>
+            <h2 className="text-xl font-semibold text-foreground">Manifesto central de uploads</h2>
           </div>
+        </div>
+
+        <div className="metric-card overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Base</th>
+                <th>Arquivo</th>
+                <th>Data / hora</th>
+                <th>Formato</th>
+                <th>Status</th>
+                <th>Impacto nas analises</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(uploadCenter?.history.length ?? 0) > 0 ? (
+                uploadCenter?.history.map((item, index) => (
+                  <tr key={`${item.dataset_id}-${item.uploaded_at}-${index}`}>
+                    <td className="text-xs font-medium text-foreground">{item.dataset_name}</td>
+                    <td className="text-xs text-muted-foreground">{item.filename}</td>
+                    <td className="text-xs text-muted-foreground">{formatTimestamp(item.uploaded_at)}</td>
+                    <td className="text-xs text-muted-foreground">{item.format}</td>
+                    <td>
+                      <span className={`rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.2em] ${getStatusClasses(item.validation_status)}`}>
+                        {formatValidationStatus(item.validation_status)}
+                      </span>
+                    </td>
+                    <td className="text-xs text-muted-foreground">{item.readiness_impact.join(", ")}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                    Nenhum upload registrado na governanca central ate o momento.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
     </PageTransition>

@@ -30,7 +30,7 @@ const navSections = [
     label: "Supply",
     icon: Factory,
     items: [
-      { to: "/demanda", label: "Carga e demanda" },
+      { to: "/demanda", label: "Base operacional" },
       { to: "/abc-xyz", label: "ABC / XYZ" },
     ],
   },
@@ -47,7 +47,7 @@ const navSections = [
     label: "Materia-Prima",
     icon: Package,
     items: [
-      { to: "/rm-upload", label: "Carga RM" },
+      { to: "/rm-upload", label: "Cobertura de insumos" },
       { to: "/rm-sla", label: "Gestao SLA" },
     ],
   },

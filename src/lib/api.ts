@@ -8,6 +8,8 @@ import type {
   ContextPack,
   RunSOPPipelineRequest,
   RunSOPPipelineResponse,
+  StructuredUploadRegistrationRequest,
+  UploadCenterStatus,
 } from "@/types/analytics";
 
 const rawBaseUrl = import.meta.env.VITE_BACKEND_URL ?? "http://127.0.0.1:8000";
@@ -178,6 +180,25 @@ export async function getContextPack() {
 
 export async function getAnalyticsDataStatus() {
   return getJSON<AnalyticsDataStatus>("/analytics/data_status");
+}
+
+export async function getUploadCenter() {
+  return getJSON<UploadCenterStatus>("/analytics/upload_center");
+}
+
+export async function getForecastResults() {
+  return getJSON<{ items: unknown[]; rowCount: number }>("/analytics/forecast_results");
+}
+
+export async function registerStructuredUpload(payload: StructuredUploadRegistrationRequest) {
+  return postJSON<UploadCenterStatus>("/analytics/register_structured_upload", payload);
+}
+
+export async function uploadDatasetFile(datasetId: string, file: File) {
+  const formData = new FormData();
+  formData.append("dataset_id", datasetId);
+  formData.append("file", file);
+  return postMultipart<{ dataset: unknown; storagePath: string }>("/analytics/upload_dataset_file", formData);
 }
 
 export async function interpretAI(payload: AIInterpretRequest) {

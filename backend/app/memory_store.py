@@ -8,6 +8,8 @@ from typing import Any, Optional
 
 import pandas as pd
 
+from .upload_manifest import build_manifest_state, build_upload_center_payload, get_dataset_definition
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -39,6 +41,8 @@ class AnalyticsMemoryState:
     last_raw_material_forecast: dict[str, Any] = field(default_factory=_empty_snapshot)
     bom_status: dict[str, Any] = field(default_factory=_empty_bom_status)
     user_mts_selection: list[str] = field(default_factory=list)
+    upload_manifest: dict[str, dict[str, Any]] = field(default_factory=build_manifest_state)
+    upload_history: list[dict[str, Any]] = field(default_factory=list)
 
 
 class AnalyticsMemoryStore:
@@ -177,6 +181,96 @@ class AnalyticsMemoryStore:
         with self._lock:
             return list(self._state.user_mts_selection)
 
+    def record_dataset_upload(
+        self,
+        dataset_id: str,
+        *,
+        filename: str,
+        file_format: str,
+        validation_status: str,
+        row_count: int = 0,
+        column_count: int = 0,
+        columns_detected: list[str] | None = None,
+        notes: str | None = None,
+        storage_path: str | None = None,
+    ) -> dict[str, Any]:
+        definition = get_dataset_definition(dataset_id)
+        columns = list(columns_detected or [])
+        with self._lock:
+            current = self._state.upload_manifest.get(dataset_id)
+            if current is None:
+                current = {**definition, "expected_columns": definition.get("expected_columns", [])}
+
+            document_count = int(current.get("document_count", 0))
+            history_count = int(current.get("history_count", 0)) + 1
+            if definition["storage_kind"] == "document":
+                document_count += 1
+
+            latest_message = notes or "Upload registrado na central."
+            uploaded_at = _now_iso()
+
+            merged = {
+                **current,
+                **definition,
+                "expected_columns": definition.get("expected_columns", []),
+                "uploaded": True,
+                "validation_status": validation_status,
+                "uploaded_at": uploaded_at,
+                "filename": filename,
+                "format": file_format,
+                "row_count": int(row_count),
+                "column_count": int(column_count),
+                "columns_detected": columns,
+                "latest_message": latest_message,
+                "history_count": history_count,
+                "document_count": document_count,
+                "storage_path": storage_path,
+            }
+            self._state.upload_manifest[dataset_id] = merged
+
+            self._state.upload_history.append(
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_name": definition["name"],
+                    "category": definition["category"],
+                    "storage_kind": definition["storage_kind"],
+                    "filename": filename,
+                    "uploaded_at": uploaded_at,
+                    "format": file_format,
+                    "validation_status": validation_status,
+                    "readiness_impact": list(definition["readiness_impact"]),
+                    "impact_summary": ", ".join(definition["readiness_impact"]),
+                    "row_count": int(row_count),
+                    "column_count": int(column_count),
+                    "notes": latest_message,
+                }
+            )
+            return deepcopy(merged)
+
+    def get_upload_manifest(self) -> dict[str, dict[str, Any]]:
+        with self._lock:
+            return deepcopy(self._state.upload_manifest)
+
+    def get_upload_history(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return deepcopy(self._state.upload_history)
+
+    def get_upload_center_payload(self) -> dict[str, Any]:
+        with self._lock:
+            session_snapshot = {
+                "last_strategy_report": deepcopy(self._state.last_strategy_report),
+                "last_forecast": deepcopy(self._state.last_forecast),
+                "last_mts_simulation": deepcopy(self._state.last_mts_simulation),
+                "last_raw_material_forecast": deepcopy(self._state.last_raw_material_forecast),
+                "bom_status": deepcopy(self._state.bom_status),
+                "user_mts_selection": list(self._state.user_mts_selection),
+            }
+            return build_upload_center_payload(
+                dataset_manifest=deepcopy(self._state.upload_manifest),
+                history=deepcopy(self._state.upload_history),
+                session_snapshot=session_snapshot,
+            )
+
     def get_session_snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -186,6 +280,8 @@ class AnalyticsMemoryStore:
                 "last_raw_material_forecast": deepcopy(self._state.last_raw_material_forecast),
                 "bom_status": deepcopy(self._state.bom_status),
                 "user_mts_selection": list(self._state.user_mts_selection),
+                "upload_manifest": deepcopy(self._state.upload_manifest),
+                "upload_history": deepcopy(self._state.upload_history),
             }
 
 

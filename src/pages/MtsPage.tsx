@@ -1,13 +1,13 @@
-import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
+import { useMemo, useState } from "react";
+import { Download, Package } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Download, Package } from "lucide-react";
 import MetricCard from "@/components/MetricCard";
 import PageTransition from "@/components/PageTransition";
+import AnalysisStatusPanel from "@/components/AnalysisStatusPanel";
 import { ABCBadge, StratBadge } from "@/components/ABCBadge";
 import { useAppData } from "@/contexts/AppDataContext";
+import { useUploadCenter } from "@/hooks/use-upload-center";
 import { postJSON } from "@/lib/api";
 import { downloadCSV } from "@/lib/downloadCSV";
 import type { SimulationResult } from "@/types/analytics";
@@ -25,15 +25,9 @@ function parseSimulationResponse(payload: unknown): SimulationResult[] {
 
   if (payload && typeof payload === "object") {
     const maybeRecord = payload as Record<string, unknown>;
-
     if (Array.isArray(maybeRecord.items)) {
       return maybeRecord.items as SimulationResult[];
     }
-
-    if (Array.isArray(maybeRecord.data)) {
-      return maybeRecord.data as SimulationResult[];
-    }
-
     if (typeof maybeRecord.product_code === "string") {
       return [maybeRecord as SimulationResult];
     }
@@ -57,17 +51,11 @@ function parseFlexibleNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-
 export default function MtsPage() {
   const { state } = useAppData();
-  const navigate = useNavigate();
-  useEffect(() => {
-    if (!state) navigate("/upload");
-  }, [state, navigate]);
-
+  const { uploadCenter } = useUploadCenter(true);
   const [filterStrat, setFilterStrat] = useState("MTS (candidato)");
   const [sortBy, setSortBy] = useState<"prioridade" | "volume" | "dias">("prioridade");
-
   const [simulationInputs, setSimulationInputs] = useState<SimulationInputRow[]>([
     { id: 1, product_code: "", forecast_demand: "" },
   ]);
@@ -76,46 +64,64 @@ export default function MtsPage() {
   const [simulationResults, setSimulationResults] = useState<SimulationResult[]>([]);
 
   const filtered = useMemo(() => {
-    if (!state) return [];
-    let list = state.products;
-    if (filterStrat !== "Todos") {
-      list = list.filter(p => (p.estrategiaFinal ?? p.estrategiaBase) === filterStrat);
+    if (!state) {
+      return [];
     }
-    return [...list].sort((a, b) => {
-      if (sortBy === "prioridade") return b.prioridadeMTS - a.prioridadeMTS;
-      if (sortBy === "volume") return b.volumeAnual - a.volumeAnual;
-      return (b.diasAlvoAjustado ?? b.diasAlvoBase) - (a.diasAlvoAjustado ?? a.diasAlvoBase);
+    let products = state.products;
+    if (filterStrat !== "Todos") {
+      products = products.filter((product) => (product.estrategiaFinal ?? product.estrategiaBase) === filterStrat);
+    }
+    return [...products].sort((left, right) => {
+      if (sortBy === "prioridade") {
+        return right.prioridadeMTS - left.prioridadeMTS;
+      }
+      if (sortBy === "volume") {
+        return right.volumeAnual - left.volumeAnual;
+      }
+      return (right.diasAlvoAjustado ?? right.diasAlvoBase) - (left.diasAlvoAjustado ?? left.diasAlvoBase);
     });
-  }, [state, filterStrat, sortBy]);
+  }, [filterStrat, sortBy, state]);
 
-  const totalVolMTS = filtered.reduce((s, p) => s + (p.targetKgAjustado ?? p.consumoDiario * p.diasAlvoBase), 0);
-  const totalVolAnual = filtered.reduce((s, p) => s + p.volumeAnual, 0);
+  const totalVolMTS = filtered.reduce((sum, product) => sum + (product.targetKgAjustado ?? product.consumoDiario * product.diasAlvoBase), 0);
+  const totalVolAnual = filtered.reduce((sum, product) => sum + product.volumeAnual, 0);
 
   const handleExport = () => {
+    if (!state) {
+      return;
+    }
     const header = [
-      "SKU", "Codigo", "ABC-XYZ", "Estrategia", "Vol. Anual (kg)", "Media/Mes (kg)",
-      "Consumo Diario (kg)", "Dias Alvo", "Target Estoque (kg)", "Prioridade MTS",
-      "Tendencia", "CV",
-      ...(state?.hasClientes ? ["Top1 Cliente", "Top1 Share (%)", "HHI"] : []),
+      "SKU",
+      "Codigo",
+      "ABC-XYZ",
+      "Estrategia",
+      "Vol. Anual (kg)",
+      "Media/Mes (kg)",
+      "Consumo Diario (kg)",
+      "Dias Alvo",
+      "Target Estoque (kg)",
+      "Prioridade MTS",
+      "Tendencia",
+      "CV",
+      ...(state.hasClientes ? ["Top1 Cliente", "Top1 Share (%)", "HHI"] : []),
     ];
-    const rows = filtered.map(p => [
-      p.SKU_LABEL,
-      p.codigoProduto,
-      p.abcXyz,
-      p.estrategiaFinal ?? p.estrategiaBase,
-      String(Math.round(p.volumeAnual)),
-      String(Math.round(p.mediaMensal)),
-      String(Math.round(p.consumoDiario)),
-      String(p.diasAlvoAjustado ?? p.diasAlvoBase),
-      String(Math.round(p.targetKgAjustado ?? p.consumoDiario * p.diasAlvoBase)),
-      String(p.prioridadeMTS),
-      p.trendLabel,
-      p.cv.toFixed(2),
-      ...(state?.hasClientes
+    const rows = filtered.map((product) => [
+      product.SKU_LABEL,
+      product.codigoProduto,
+      product.abcXyz,
+      product.estrategiaFinal ?? product.estrategiaBase,
+      String(Math.round(product.volumeAnual)),
+      String(Math.round(product.mediaMensal)),
+      String(Math.round(product.consumoDiario)),
+      String(product.diasAlvoAjustado ?? product.diasAlvoBase),
+      String(Math.round(product.targetKgAjustado ?? product.consumoDiario * product.diasAlvoBase)),
+      String(product.prioridadeMTS),
+      product.trendLabel,
+      product.cv.toFixed(2),
+      ...(state.hasClientes
         ? [
-            p.top1Cliente ?? "",
-            p.top1ShareProduto != null ? (p.top1ShareProduto * 100).toFixed(1) : "",
-            p.hhiProduto != null ? p.hhiProduto.toFixed(3) : "",
+            product.top1Cliente ?? "",
+            product.top1ShareProduto != null ? (product.top1ShareProduto * 100).toFixed(1) : "",
+            product.hhiProduto != null ? product.hhiProduto.toFixed(3) : "",
           ]
         : []),
     ]);
@@ -123,25 +129,24 @@ export default function MtsPage() {
   };
 
   const updateSimulationInput = (id: number, field: keyof SimulationInputRow, value: string) => {
-    setSimulationInputs(prev => prev.map(row => (row.id === id ? { ...row, [field]: value } : row)));
+    setSimulationInputs((current) => current.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
   };
 
   const addSimulationRow = () => {
-    setSimulationInputs(prev => [...prev, { id: Date.now(), product_code: "", forecast_demand: "" }]);
+    setSimulationInputs((current) => [...current, { id: Date.now(), product_code: "", forecast_demand: "" }]);
   };
 
   const removeSimulationRow = (id: number) => {
-    setSimulationInputs(prev => (prev.length > 1 ? prev.filter(row => row.id !== id) : prev));
+    setSimulationInputs((current) => (current.length > 1 ? current.filter((row) => row.id !== id) : current));
   };
 
   const handleSimulateMTS = async () => {
     try {
       setSimulationLoading(true);
       setSimulationError(null);
-
       const items = simulationInputs
-        .filter(row => row.product_code.trim() !== "")
-        .map(row => ({
+        .filter((row) => row.product_code.trim() !== "")
+        .map((row) => ({
           product_code: row.product_code.trim(),
           forecast_demand: parseFlexibleNumber(row.forecast_demand),
         }));
@@ -151,115 +156,125 @@ export default function MtsPage() {
         return;
       }
 
-      let response: unknown;
-
-      if (items.length === 1) {
-        try {
-          response = await postJSON("/analytics/simulate_mts_production", items[0]);
-        } catch (_singleError) {
-          response = await postJSON("/analytics/simulate_mts_production", { items });
-        }
-      } else {
-        response = await postJSON("/analytics/simulate_mts_production", { items });
-      }
-
+      const response = await postJSON("/analytics/simulate_mts_production", { items });
       setSimulationResults(parseSimulationResponse(response));
-    } catch (err) {
-      setSimulationError(err instanceof Error ? err.message : String(err));
+    } catch (requestError) {
+      setSimulationError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
       setSimulationLoading(false);
     }
   };
-
-  if (!state) return null;
 
   return (
     <PageTransition className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
-            <Package className="h-5 w-5 text-primary" /> Recomendacao MTS / MTO
+            <Package className="h-5 w-5 text-primary" /> Politica MTS / MTO
           </h2>
-          <p className="text-xs text-muted-foreground font-mono mt-1">SKUs candidatos a estoque com volumes e prioridades</p>
+          <p className="text-xs text-muted-foreground font-mono mt-1">
+            O modulo usa as bases centralizadas para ler candidatos MTS e apoiar simulacoes de decisao.
+          </p>
         </div>
-        <Button variant="outline" size="sm" className="font-mono text-xs" onClick={handleExport} disabled={filtered.length === 0}>
+        <Button variant="outline" size="sm" className="font-mono text-xs" onClick={handleExport} disabled={!state}>
           <Download className="h-3.5 w-3.5 mr-1" /> Exportar CSV
         </Button>
       </div>
 
-      <div className="metric-card flex flex-wrap items-center gap-4">
-        <div>
-          <label className="text-xs text-muted-foreground font-mono mb-1 block">Estrategia</label>
-          <Select value={filterStrat} onValueChange={setFilterStrat}>
-            <SelectTrigger className="w-48 font-mono text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Todos">Todos</SelectItem>
-              <SelectItem value="MTS (candidato)">MTS (candidato)</SelectItem>
-              <SelectItem value="MTO">MTO</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <label className="text-xs text-muted-foreground font-mono mb-1 block">Ordenar por</label>
-          <Select value={sortBy} onValueChange={v => setSortBy(v as "prioridade" | "volume" | "dias")}>
-            <SelectTrigger className="w-40 font-mono text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="prioridade">Prioridade</SelectItem>
-              <SelectItem value="volume">Volume Anual</SelectItem>
-              <SelectItem value="dias">Dias Alvo</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+      <AnalysisStatusPanel
+        uploadCenter={uploadCenter}
+        moduleKey="mts_mto"
+        title="Prontidao da politica MTS/MTO"
+        description="A base operacional, o forecast consolidado e a estrutura de produto agora entram pela central de upload."
+        datasetIds={["production", "clients", "forecast_input", "bom"]}
+      />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <MetricCard label="SKUs Filtrados" value={filtered.length} />
-        <MetricCard label="Vol. Anual Total" value={`${Math.round(totalVolAnual).toLocaleString()} kg`} />
-        <MetricCard label="Target Estoque Total" value={`${Math.round(totalVolMTS).toLocaleString()} kg`} />
-        <MetricCard label="Estrategia" value={filterStrat} />
-      </div>
+      {!state ? (
+        <section className="metric-card text-center py-10">
+          <p className="text-sm text-muted-foreground">
+            Sem historico operacional consolidado para priorizar candidatos MTS/MTO.
+          </p>
+        </section>
+      ) : (
+        <>
+          <div className="metric-card flex flex-wrap items-center gap-4">
+            <div>
+              <label className="text-xs text-muted-foreground font-mono mb-1 block">Estrategia</label>
+              <Select value={filterStrat} onValueChange={setFilterStrat}>
+                <SelectTrigger className="w-48 font-mono text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos</SelectItem>
+                  <SelectItem value="MTS (candidato)">MTS (candidato)</SelectItem>
+                  <SelectItem value="MTO">MTO</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground font-mono mb-1 block">Ordenar por</label>
+              <Select value={sortBy} onValueChange={(value) => setSortBy(value as "prioridade" | "volume" | "dias")}>
+                <SelectTrigger className="w-40 font-mono text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="prioridade">Prioridade</SelectItem>
+                  <SelectItem value="volume">Volume Anual</SelectItem>
+                  <SelectItem value="dias">Dias Alvo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-      <div className="metric-card overflow-x-auto max-h-[500px] overflow-y-auto">
-        <table className="data-table">
-          <thead className="sticky top-0 z-10">
-            <tr>
-              <th>#</th>
-              <th>SKU</th>
-              <th>ABC-XYZ</th>
-              <th>Estrategia</th>
-              <th>Vol. Anual</th>
-              <th>Consumo/Dia</th>
-              <th>Dias Alvo</th>
-              <th>Target Estoque</th>
-              <th>Prioridade</th>
-              <th>Tendencia</th>
-              {state.hasClientes && <th>Top1 Cliente</th>}
-              {state.hasClientes && <th>HHI</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.slice(0, 100).map((p, i) => (
-              <tr key={p.SKU_LABEL}>
-                <td className="text-xs text-muted-foreground">{i + 1}</td>
-                <td className="max-w-[200px] truncate text-xs" title={p.SKU_LABEL}>{p.SKU_LABEL}</td>
-                <td><ABCBadge classe={p.abcXyz} /></td>
-                <td><StratBadge strat={p.estrategiaFinal ?? p.estrategiaBase} /></td>
-                <td className="text-right font-mono text-xs">{Math.round(p.volumeAnual).toLocaleString()}</td>
-                <td className="text-right font-mono text-xs">{Math.round(p.consumoDiario).toLocaleString()}</td>
-                <td className="text-right font-mono text-xs">{p.diasAlvoAjustado ?? p.diasAlvoBase}</td>
-                <td className="text-right font-mono text-xs font-bold">{Math.round(p.targetKgAjustado ?? p.consumoDiario * p.diasAlvoBase).toLocaleString()}</td>
-                <td className="text-right font-mono text-xs">{p.prioridadeMTS}</td>
-                <td className="text-xs">{p.trendLabel}</td>
-                {state.hasClientes && <td className="text-xs max-w-[120px] truncate">{p.top1Cliente ?? "-"}</td>}
-                {state.hasClientes && <td className="text-right font-mono text-xs">{p.hhiProduto != null ? p.hhiProduto.toFixed(3) : "-"}</td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <MetricCard label="SKUs Filtrados" value={filtered.length} />
+            <MetricCard label="Vol. Anual Total" value={`${Math.round(totalVolAnual).toLocaleString()} kg`} />
+            <MetricCard label="Target Estoque Total" value={`${Math.round(totalVolMTS).toLocaleString()} kg`} />
+            <MetricCard label="Estrategia" value={filterStrat} />
+          </div>
 
-      <div className="metric-card space-y-3">
-        <h3 className="text-sm font-bold font-mono text-foreground">Simulacao de producao MTS</h3>
+          <div className="metric-card overflow-x-auto max-h-[500px] overflow-y-auto">
+            <table className="data-table">
+              <thead className="sticky top-0 z-10">
+                <tr>
+                  <th>#</th>
+                  <th>SKU</th>
+                  <th>ABC-XYZ</th>
+                  <th>Estrategia</th>
+                  <th>Vol. Anual</th>
+                  <th>Consumo/Dia</th>
+                  <th>Dias Alvo</th>
+                  <th>Target Estoque</th>
+                  <th>Prioridade</th>
+                  <th>Tendencia</th>
+                  {state.hasClientes && <th>Top1 Cliente</th>}
+                  {state.hasClientes && <th>HHI</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.slice(0, 100).map((product, index) => (
+                  <tr key={product.SKU_LABEL}>
+                    <td className="text-xs text-muted-foreground">{index + 1}</td>
+                    <td className="max-w-[200px] truncate text-xs" title={product.SKU_LABEL}>{product.SKU_LABEL}</td>
+                    <td><ABCBadge classe={product.abcXyz} /></td>
+                    <td><StratBadge strat={product.estrategiaFinal ?? product.estrategiaBase} /></td>
+                    <td className="text-right font-mono text-xs">{Math.round(product.volumeAnual).toLocaleString()}</td>
+                    <td className="text-right font-mono text-xs">{Math.round(product.consumoDiario).toLocaleString()}</td>
+                    <td className="text-right font-mono text-xs">{product.diasAlvoAjustado ?? product.diasAlvoBase}</td>
+                    <td className="text-right font-mono text-xs font-bold">{Math.round(product.targetKgAjustado ?? product.consumoDiario * product.diasAlvoBase).toLocaleString()}</td>
+                    <td className="text-right font-mono text-xs">{product.prioridadeMTS}</td>
+                    <td className="text-xs">{product.trendLabel}</td>
+                    {state.hasClientes && <td className="text-xs max-w-[120px] truncate">{product.top1Cliente ?? "-"}</td>}
+                    {state.hasClientes && <td className="text-right font-mono text-xs">{product.hhiProduto != null ? product.hhiProduto.toFixed(3) : "-"}</td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      <section className="metric-card space-y-3">
+        <h3 className="text-sm font-bold font-mono text-foreground">Simulacao de decisao MTS</h3>
+        <p className="text-sm text-muted-foreground">
+          A simulacao continua nesta aba porque representa uma decisao de cenario, nao um upload primario.
+        </p>
 
         <div className="overflow-x-auto">
           <table className="data-table">
@@ -271,12 +286,12 @@ export default function MtsPage() {
               </tr>
             </thead>
             <tbody>
-              {simulationInputs.map(row => (
+              {simulationInputs.map((row) => (
                 <tr key={row.id}>
                   <td>
                     <input
                       value={row.product_code}
-                      onChange={e => updateSimulationInput(row.id, "product_code", e.target.value)}
+                      onChange={(event) => updateSimulationInput(row.id, "product_code", event.target.value)}
                       className="w-full bg-background border border-border rounded px-2 py-1 text-xs font-mono"
                       placeholder="P001"
                     />
@@ -286,7 +301,7 @@ export default function MtsPage() {
                       type="text"
                       inputMode="decimal"
                       value={row.forecast_demand}
-                      onChange={e => updateSimulationInput(row.id, "forecast_demand", e.target.value)}
+                      onChange={(event) => updateSimulationInput(row.id, "forecast_demand", event.target.value)}
                       className="w-full bg-background border border-border rounded px-2 py-1 text-xs font-mono"
                       placeholder="0"
                     />
@@ -314,40 +329,38 @@ export default function MtsPage() {
         {simulationResults.length > 0 && (
           <div className="space-y-2">
             <p className="text-xs font-mono text-muted-foreground">
-              Total geral (total_production_cost): {simulationResults
-                .reduce((sum, row) => sum + Number(row.total_production_cost ?? 0), 0)
-                .toFixed(2)}
+              Total geral (total_production_cost):{" "}
+              {simulationResults.reduce((sum, row) => sum + Number(row.total_production_cost ?? 0), 0).toFixed(2)}
             </p>
             <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>product_code</th>
-                  <th>production_qty</th>
-                  <th>raw_material_code</th>
-                  <th>raw_material_required</th>
-                  <th>raw_material_cost</th>
-                  <th>total_production_cost</th>
-                </tr>
-              </thead>
-              <tbody>
-                {simulationResults.map((row, idx) => (
-                  <tr key={`${row.product_code}-${row.raw_material_code}-${idx}`}>
-                    <td className="font-mono text-xs">{row.product_code}</td>
-                    <td className="text-right font-mono text-xs">{Number(row.production_qty ?? 0).toFixed(2)}</td>
-                    <td className="font-mono text-xs">{row.raw_material_code}</td>
-                    <td className="text-right font-mono text-xs">{Number(row.raw_material_required ?? 0).toFixed(2)}</td>
-                    <td className="text-right font-mono text-xs">{Number(row.raw_material_cost ?? 0).toFixed(2)}</td>
-                    <td className="text-right font-mono text-xs font-bold">{Number(row.total_production_cost ?? 0).toFixed(2)}</td>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>product_code</th>
+                    <th>production_qty</th>
+                    <th>raw_material_code</th>
+                    <th>raw_material_required</th>
+                    <th>raw_material_cost</th>
+                    <th>total_production_cost</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {simulationResults.map((row, index) => (
+                    <tr key={`${row.product_code}-${row.raw_material_code}-${index}`}>
+                      <td className="font-mono text-xs">{row.product_code}</td>
+                      <td className="text-right font-mono text-xs">{Number(row.production_qty ?? 0).toFixed(2)}</td>
+                      <td className="font-mono text-xs">{row.raw_material_code}</td>
+                      <td className="text-right font-mono text-xs">{Number(row.raw_material_required ?? 0).toFixed(2)}</td>
+                      <td className="text-right font-mono text-xs">{Number(row.raw_material_cost ?? 0).toFixed(2)}</td>
+                      <td className="text-right font-mono text-xs font-bold">{Number(row.total_production_cost ?? 0).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
-      </div>
+      </section>
     </PageTransition>
   );
 }
-
