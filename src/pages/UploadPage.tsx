@@ -5,23 +5,26 @@ import UploadDatasetCard, { type UploadFeedback } from "@/components/UploadDatas
 import { Button } from "@/components/ui/button";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useUploadCenter } from "@/hooks/use-upload-center";
-import { parseFile } from "@/lib/fileParser";
 import {
+  formatAvailabilityStatus,
+  formatCoveragePercent,
   formatValidationStatus,
-  buildStructuredUploadPayload,
   formatReadinessStatus,
   formatTimestamp,
   getDataset,
   getStatusClasses,
-  parseForecastInputRows,
 } from "@/lib/upload-center";
-import { postJSON, postMultipart, registerStructuredUpload, uploadDatasetFile } from "@/lib/api";
-import type { UploadDatasetKey } from "@/types/analytics";
+import { uploadDatasetFile } from "@/lib/api";
+import type { UploadDatasetKey, UploadValidationReport } from "@/types/analytics";
+import { ExecutiveReadinessPanel } from "@/components/ExecutiveReadinessPanel";
+import { AnalyticCoveragePanel } from "@/components/AnalyticCoveragePanel";
+import { CriticalGapsPanel } from "@/components/CriticalGapsPanel";
+
 
 type FeedbackMap = Partial<Record<UploadDatasetKey, UploadFeedback | null>>;
 type LoadingMap = Partial<Record<UploadDatasetKey, boolean>>;
 
-const READINESS_ORDER = ["overall", "forecast", "mts_mto", "raw_material", "finance", "executive_ai"] as const;
+const READINESS_ORDER = ["overall", "planning_production", "forecast", "mts_mto", "raw_material", "finance", "executive_ai"] as const;
 
 export default function UploadPage() {
   const {
@@ -40,11 +43,10 @@ export default function UploadPage() {
 
   const [productionFile, setProductionFile] = useState<File | null>(null);
   const [salesOrdersFile, setSalesOrdersFile] = useState<File | null>(null);
-  const [clientsFile, setClientsFile] = useState<File | null>(null);
+  const [customersFile, setCustomersFile] = useState<File | null>(null);
   const [forecastFile, setForecastFile] = useState<File | null>(null);
   const [bomFile, setBomFile] = useState<File | null>(null);
   const [rawMaterialFile, setRawMaterialFile] = useState<File | null>(null);
-  const [financeSheetsFile, setFinanceSheetsFile] = useState<File | null>(null);
   const [financeDocumentsFile, setFinanceDocumentsFile] = useState<File | null>(null);
 
   const datasetMap = useMemo(
@@ -56,6 +58,27 @@ export default function UploadPage() {
   const totalCount = uploadCenter?.total_dataset_count ?? 0;
   const coveragePercent = uploadCenter?.coverage_percent ?? 0;
   const historyCount = uploadCenter?.history.length ?? 0;
+  const averageCompatibility = uploadCenter?.compatibility_summary.average_compatibility_score ?? 0;
+  const averageConfidence = uploadCenter?.compatibility_summary.average_confidence_score ?? 0;
+  const aiConfidence = uploadCenter?.compatibility_summary.ai_readiness.confidence_score ?? 0;
+  const largestGaps = uploadCenter?.compatibility_summary.largest_gaps ?? [];
+
+  const toneFromValidation = (validation: UploadValidationReport): UploadFeedback["tone"] => {
+    if (validation.availability_status === "ready") {
+      return "success";
+    }
+    if (validation.availability_status === "partial") {
+      return "info";
+    }
+    return "error";
+  };
+
+  const messageFromValidation = (validation: UploadValidationReport, readyMessage?: string) => {
+    if (validation.availability_status === "ready" && readyMessage) {
+      return readyMessage;
+    }
+    return validation.quality_gaps[0] ?? validation.summary;
+  };
 
   const executeUpload = async (
     datasetId: UploadDatasetKey,
@@ -87,17 +110,15 @@ export default function UploadPage() {
     }
 
     await executeUpload("production", async () => {
+      const response = await uploadDatasetFile("production", productionFile);
+      if (response.validation.availability_status !== "ready") {
+        return {
+          tone: toneFromValidation(response.validation),
+          message: messageFromValidation(response.validation),
+        };
+      }
+
       const result = await loadProductionFile(productionFile);
-      await registerStructuredUpload(
-        buildStructuredUploadPayload(
-          "production",
-          productionFile,
-          result.rowCount,
-          result.columns,
-          "valid",
-          `${result.productsCount} produtos preparados para leitura executiva.`,
-        ),
-      );
       setProductionFile(null);
       return {
         tone: "success",
@@ -112,35 +133,36 @@ export default function UploadPage() {
     }
 
     await executeUpload("sales_orders", async () => {
-      await uploadDatasetFile("sales_orders", salesOrdersFile);
-      setSalesOrdersFile(null);
+      const response = await uploadDatasetFile("sales_orders", salesOrdersFile);
+      if (response.validation.availability_status !== "unavailable") {
+        setSalesOrdersFile(null);
+      }
       return {
-        tone: "info",
-        message: "Carteira comercial registrada. A integracao analitica ficou preparada para a proxima etapa.",
+        tone: toneFromValidation(response.validation),
+        message: messageFromValidation(
+          response.validation,
+          "Carteira comercial validada e pronta para governanca central.",
+        ),
       };
     });
   };
 
-  const handleClientsUpload = async () => {
-    if (!clientsFile) {
+  const handleCustomersUpload = async () => {
+    if (!customersFile) {
       return;
     }
 
-    await executeUpload("clients", async () => {
-      const result = await loadClientsFile(clientsFile);
-      await registerStructuredUpload(
-        buildStructuredUploadPayload(
-          "clients",
-          clientsFile,
-          result.rowCount,
-          result.columns,
-          "valid",
-          result.hasProductionLoaded
-            ? "Base de clientes conectada ao historico operacional."
-            : "Base de clientes registrada e aguardando producao para consolidacao cruzada.",
-        ),
-      );
-      setClientsFile(null);
+    await executeUpload("customers", async () => {
+      const response = await uploadDatasetFile("customers", customersFile);
+      if (response.validation.availability_status !== "ready") {
+        return {
+          tone: toneFromValidation(response.validation),
+          message: messageFromValidation(response.validation),
+        };
+      }
+
+      const result = await loadClientsFile(customersFile);
+      setCustomersFile(null);
       return {
         tone: "success",
         message: result.hasProductionLoaded
@@ -156,21 +178,16 @@ export default function UploadPage() {
     }
 
     await executeUpload("forecast_input", async () => {
-      const rows = await parseFile(forecastFile);
-      const items = parseForecastInputRows(rows);
-
-      if (items.length === 0) {
-        throw new Error("A base de forecast precisa de product_code e ao menos um historico de demanda.");
+      const response = await uploadDatasetFile("forecast_input", forecastFile);
+      if (response.validation.availability_status !== "unavailable") {
+        setForecastFile(null);
       }
-
-      await postJSON("/analytics/forecast_demand", {
-        items,
-        source_filename: forecastFile.name,
-      });
-      setForecastFile(null);
       return {
-        tone: "success",
-        message: `${items.length} linhas de forecast enviadas para consolidacao analitica.`,
+        tone: toneFromValidation(response.validation),
+        message: messageFromValidation(
+          response.validation,
+          "Forecast consolidado a partir do contrato oficial da base.",
+        ),
       };
     });
   };
@@ -181,16 +198,16 @@ export default function UploadPage() {
     }
 
     await executeUpload("bom", async () => {
-      const formData = new FormData();
-      formData.append("file", bomFile);
-      const response = (await postMultipart("/analytics/upload_bom", formData)) as {
-        count?: number;
-        products?: number;
-      };
-      setBomFile(null);
+      const response = await uploadDatasetFile("bom", bomFile);
+      if (response.validation.availability_status !== "unavailable") {
+        setBomFile(null);
+      }
       return {
-        tone: "success",
-        message: `${response.count ?? 0} linhas e ${response.products ?? 0} produtos conectados na estrutura de insumos.`,
+        tone: toneFromValidation(response.validation),
+        message: messageFromValidation(
+          response.validation,
+          "Estrutura de produto validada pelo contrato oficial e registrada no backend.",
+        ),
       };
     });
   };
@@ -201,20 +218,15 @@ export default function UploadPage() {
     }
 
     await executeUpload("raw_material_inventory", async () => {
+      const response = await uploadDatasetFile("raw_material_inventory", rawMaterialFile);
+      if (response.validation.availability_status !== "ready") {
+        return {
+          tone: toneFromValidation(response.validation),
+          message: messageFromValidation(response.validation),
+        };
+      }
+
       const result = await loadRawMaterialFile(rawMaterialFile);
-      const validationStatus = result.validation.valid ? "valid" : "invalid";
-      await registerStructuredUpload(
-        buildStructuredUploadPayload(
-          "raw_material_inventory",
-          rawMaterialFile,
-          result.rowCount,
-          result.columns,
-          validationStatus,
-          result.validation.valid
-            ? "Estoque de materia-prima pronto para cobertura e SLA."
-            : `Colunas obrigatorias ausentes: ${result.validation.missing.join(", ")}`,
-        ),
-      );
       if (!result.validation.valid) {
         return {
           tone: "error",
@@ -229,32 +241,20 @@ export default function UploadPage() {
     });
   };
 
-  const handleFinanceSheetsUpload = async () => {
-    if (!financeSheetsFile) {
-      return;
-    }
-
-    await executeUpload("finance_spreadsheets", async () => {
-      await uploadDatasetFile("finance_spreadsheets", financeSheetsFile);
-      setFinanceSheetsFile(null);
-      return {
-        tone: "info",
-        message: "Planilha financeira registrada. A camada de leitura estruturada ficou preparada para a proxima etapa.",
-      };
-    });
-  };
-
   const handleFinanceDocumentsUpload = async () => {
     if (!financeDocumentsFile) {
       return;
     }
 
     await executeUpload("finance_documents", async () => {
-      await uploadDatasetFile("finance_documents", financeDocumentsFile);
+      const response = await uploadDatasetFile("finance_documents", financeDocumentsFile);
       setFinanceDocumentsFile(null);
       return {
-        tone: "info",
-        message: "Documento financeiro anexado. O pipeline ficou preparado para leitura inteligente futura.",
+        tone: toneFromValidation(response.validation),
+        message: messageFromValidation(
+          response.validation,
+          "Documento financeiro anexado para governanca e leitura inteligente futura.",
+        ),
       };
     });
   };
@@ -273,18 +273,17 @@ export default function UploadPage() {
         <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div className="space-y-4">
             <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-primary">
-              Upload de Dados
+              Visão Executiva
             </span>
             <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">Central de ingestao e prontidao analitica</h1>
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">Central de Prontidão Executiva</h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                Toda a ingestao do Operion passa por esta central. As demais abas ficam orientadas a leitura, simulacao
-                e decisao, enquanto esta tela controla cobertura analitica, dicionario de dados e governanca dos uploads.
+                Visão integrada da cobertura de dados, prontidão dos módulos analíticos e lacunas críticas para a tomada de decisão.
               </p>
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
               <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Bases disponiveis</p>
               <p className="mt-2 text-2xl font-semibold text-foreground">
@@ -293,20 +292,11 @@ export default function UploadPage() {
             </div>
             <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
               <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Cobertura analitica</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{coveragePercent}%</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{formatCoveragePercent(coveragePercent)}</p>
             </div>
             <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Historico de uploads</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{historyCount}</p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Camada local ativa</p>
-              <p className="mt-2 text-sm font-medium text-foreground">
-                {state ? `${state.products.length} produtos carregados` : "Sem producao ativa"}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {rmData ? `${rmData.length} insumos em memoria` : "Sem estoque de materia-prima em memoria"}
-              </p>
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Confianca analitica</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{averageConfidence}%</p>
             </div>
           </div>
         </div>
@@ -322,42 +312,75 @@ export default function UploadPage() {
         </div>
       </section>
 
-      <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-primary" />
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Prontidao de dados</p>
-            <h2 className="text-xl font-semibold text-foreground">Painel de cobertura e prontidao analitica</h2>
-          </div>
-        </div>
+      <ExecutiveReadinessPanel />
+      <AnalyticCoveragePanel />
+      <CriticalGapsPanel />
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {READINESS_ORDER.map((key) => {
-            const item = uploadCenter?.readiness[key];
-            if (!item) {
-              return null;
-            }
-            return (
-              <article key={item.key} className="metric-card space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">{item.label}</p>
-                    <h3 className="mt-2 text-lg font-semibold text-foreground">{formatReadinessStatus(item.status)}</h3>
-                  </div>
-                  <span className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.22em] ${getStatusClasses(item.status)}`}>
-                    {item.status}
+      <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <article className="metric-card space-y-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Governanca contratual</p>
+            <h2 className="text-xl font-semibold text-foreground">Compatibilidade, lacunas e confianca</h2>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Score medio</p>
+              <p className="mt-2 text-xl font-semibold text-foreground">{averageCompatibility}%</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Confianca media</p>
+              <p className="mt-2 text-xl font-semibold text-foreground">{averageConfidence}%</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Status IA</p>
+              <p className="mt-2 text-xl font-semibold text-foreground">{formatAvailabilityStatus(uploadCenter?.readiness.executive_ai.status ?? "unavailable")}</p>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Maiores lacunas atuais</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {largestGaps.length > 0 ? (
+                largestGaps.map((gap) => (
+                  <span key={gap} className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs text-foreground">
+                    {gap}
                   </span>
-                </div>
-                <p className="text-sm text-muted-foreground">{item.summary}</p>
-                <p className="text-xs text-muted-foreground">
-                  {item.missing_datasets.length > 0
-                    ? `Faltando: ${item.missing_datasets.join(", ")}`
-                    : "Cobertura registrada para este modulo."}
-                </p>
-              </article>
-            );
-          })}
-        </div>
+                ))
+              ) : (
+                <span className="rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs text-foreground">
+                  Sem lacunas abertas na ultima rodada.
+                </span>
+              )}
+            </div>
+          </div>
+        </article>
+
+        <article className="metric-card space-y-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Registry oficial</p>
+            <h2 className="text-xl font-semibold text-foreground">Contrato unificado por dataset</h2>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Versao do registry</p>
+            <p className="mt-2 text-sm font-medium text-foreground">{uploadCenter?.contract_registry.version ?? "Carregando..."}</p>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Compatibilidade legada</p>
+            <p className="mt-2 text-sm text-foreground">
+              {Object.entries(uploadCenter?.contract_registry.aliases ?? {}).length > 0
+                ? Object.entries(uploadCenter?.contract_registry.aliases ?? {})
+                    .map(([legacy, current]) => `${legacy} -> ${current}`)
+                    .join(", ")
+                : "Sem aliases legados registrados."}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Leitura executiva</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Cada upload agora registra contrato oficial, colunas reconhecidas, aliases aceitos, impacto analitico,
+              lacunas de qualidade e nivel de confianca para a futura camada de IA.
+            </p>
+          </div>
+        </article>
       </section>
 
       {(error || contextError) && (
@@ -406,14 +429,14 @@ export default function UploadPage() {
             />
           ) : null}
 
-          {getDataset(uploadCenter, "clients") ? (
+          {getDataset(uploadCenter, "customers") ? (
             <UploadDatasetCard
-              dataset={datasetMap.get("clients")!}
-              file={clientsFile}
-              onFileSelect={setClientsFile}
-              onUpload={handleClientsUpload}
-              loading={Boolean(datasetLoading.clients)}
-              feedback={feedback.clients}
+              dataset={datasetMap.get("customers")!}
+              file={customersFile}
+              onFileSelect={setCustomersFile}
+              onUpload={handleCustomersUpload}
+              loading={Boolean(datasetLoading.customers)}
+              feedback={feedback.customers}
               actionLabel="Atualizar clientes"
             />
           ) : null}
@@ -478,18 +501,6 @@ export default function UploadPage() {
         </div>
 
         <div className="space-y-4">
-          {getDataset(uploadCenter, "finance_spreadsheets") ? (
-            <UploadDatasetCard
-              dataset={datasetMap.get("finance_spreadsheets")!}
-              file={financeSheetsFile}
-              onFileSelect={setFinanceSheetsFile}
-              onUpload={handleFinanceSheetsUpload}
-              loading={Boolean(datasetLoading.finance_spreadsheets)}
-              feedback={feedback.finance_spreadsheets}
-              actionLabel="Registrar planilha financeira"
-            />
-          ) : null}
-
           {getDataset(uploadCenter, "finance_documents") ? (
             <UploadDatasetCard
               dataset={datasetMap.get("finance_documents")!}
@@ -523,6 +534,7 @@ export default function UploadPage() {
                 <th>Data / hora</th>
                 <th>Formato</th>
                 <th>Status</th>
+                <th>Score</th>
                 <th>Impacto nas analises</th>
               </tr>
             </thead>
@@ -539,12 +551,15 @@ export default function UploadPage() {
                         {formatValidationStatus(item.validation_status)}
                       </span>
                     </td>
+                    <td className="text-xs text-muted-foreground">
+                      {item.compatibility_score}%{item.missing_required_columns.length > 0 ? ` | Faltando: ${item.missing_required_columns.join(", ")}` : ""}
+                    </td>
                     <td className="text-xs text-muted-foreground">{item.readiness_impact.join(", ")}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
                     Nenhum upload registrado na governanca central ate o momento.
                   </td>
                 </tr>

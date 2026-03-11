@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from ..schemas import (
     AIConfigRequest,
@@ -8,6 +8,9 @@ from ..schemas import (
     AIInterpretRequest,
     AIInterpretResponse,
     AITestConnectionResponse,
+    ExecutiveChatContextResponse,
+    ExecutiveChatRequest,
+    ExecutiveChatResponse,
 )
 from .ai_service import ai_service
 
@@ -35,3 +38,20 @@ def interpret_ai(request: AIInterpretRequest):
         return ai_service.interpret(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/executive_chat", response_model=ExecutiveChatResponse)
+def executive_chat(request: ExecutiveChatRequest):
+    try:
+        return ai_service.executive_chat(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/executive_chat_context", response_model=ExecutiveChatContextResponse)
+def executive_chat_context(
+    include_planning_context: bool = Query(default=True),
+):
+    return ai_service.executive_chat_context(
+        include_planning_context=include_planning_context,
+    )

@@ -100,6 +100,15 @@ export function formatReadinessStatus(status: UploadReadinessStatus) {
   return "Indisponivel";
 }
 
+export function formatAvailabilityStatus(status: UploadReadinessStatus) {
+  return formatReadinessStatus(status);
+}
+
+export function formatCoveragePercent(value: number) {
+  const safe = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+  return `${Math.round(safe)}%`;
+}
+
 export function getStatusClasses(status: UploadValidationStatus | UploadReadinessStatus) {
   if (status === "valid" || status === "ready") {
     return "border-success/30 bg-success/10 text-foreground";
@@ -123,7 +132,7 @@ export function getFileFormat(file: File) {
 }
 
 export function buildStructuredUploadPayload(
-  datasetId: Extract<UploadDatasetKey, "production" | "clients" | "raw_material_inventory">,
+  datasetId: Extract<UploadDatasetKey, "production" | "customers" | "raw_material_inventory">,
   file: File,
   rowCount: number,
   columns: string[],

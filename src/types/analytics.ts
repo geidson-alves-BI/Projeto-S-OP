@@ -27,6 +27,7 @@ export type ContextPack = {
   forecast_summary?: Record<string, unknown>;
   raw_material_impact?: Record<string, unknown>;
   financial_impact?: Record<string, unknown>;
+  planning_production?: Record<string, unknown>;
   data_quality?: {
     flags?: string[];
     status?: string;
@@ -36,6 +37,7 @@ export type ContextPack = {
   inputs_available?: {
     strategy_report?: boolean;
     forecast?: boolean;
+    planning_production?: boolean;
     bom?: boolean;
     mts_simulation?: boolean;
     raw_material_forecast?: boolean;
@@ -146,6 +148,11 @@ export type AnalyticsDataStatus = {
     rowCount: number;
     updatedAt: string | null;
   };
+  planningProduction: {
+    loaded: boolean;
+    rowCount: number;
+    updatedAt: string | null;
+  };
   mtsSimulation: {
     loaded: boolean;
     rowCount: number;
@@ -166,38 +173,64 @@ export type AnalyticsDataStatus = {
 
 export type UploadValidationStatus = "valid" | "partial" | "invalid" | "pending" | "missing";
 export type UploadReadinessStatus = "ready" | "partial" | "unavailable";
+export type UploadCompatibilityStatus = "compatible" | "partial" | "incompatible";
+export type DatasetCriticality = "critical" | "high" | "medium" | "low";
+export type DatasetColumnType = "string" | "integer" | "number" | "date" | "boolean" | "array<number>";
 export type UploadDatasetKey =
   | "production"
   | "sales_orders"
-  | "clients"
+  | "customers"
   | "forecast_input"
   | "bom"
   | "raw_material_inventory"
-  | "finance_spreadsheets"
   | "finance_documents";
+export type UploadDatasetAliasKey = UploadDatasetKey | "clients";
 
 export type UploadReadinessKey =
   | "overall"
+  | "planning_production"
   | "forecast"
   | "mts_mto"
   | "raw_material"
   | "finance"
   | "executive_ai";
 
-export type UploadDataset = {
+export type DatasetContract = {
   id: UploadDatasetKey;
+  dataset_id: UploadDatasetKey;
+  legacy_ids: string[];
   name: string;
+  friendly_name: string;
   category: string;
   storage_kind: "structured" | "document";
   objective: string;
+  executive_description: string;
   accepted_formats: string[];
   required_columns: string[];
   optional_columns: string[];
   expected_columns: string[];
+  column_labels: Record<string, string>;
+  column_aliases: Record<string, string[]>;
+  expected_types: Record<string, DatasetColumnType>;
+  validation_rules: Array<{
+    id: string;
+    type: string;
+    severity: string;
+    description: string;
+    value?: number;
+    columns?: string[];
+  }>;
   readiness_impact: string[];
+  criticality: DatasetCriticality;
+  usage_examples: string[];
+  contract_registry_version: string;
+};
+
+export type UploadDataset = DatasetContract & {
   uploaded: boolean;
   available: boolean;
   validation_status: UploadValidationStatus;
+  availability_status: UploadReadinessStatus;
   uploaded_at: string | null;
   filename: string | null;
   format: string | null;
@@ -209,6 +242,8 @@ export type UploadDataset = {
   document_count: number;
   storage_path: string | null;
   last_upload_status: string;
+  last_validation: UploadValidationReport | null;
+  compatibility_summary: DatasetCompatibilitySummary;
 };
 
 export type UploadHistoryItem = {
@@ -220,10 +255,14 @@ export type UploadHistoryItem = {
   uploaded_at: string;
   format: string;
   validation_status: UploadValidationStatus;
+  availability_status: UploadReadinessStatus;
   readiness_impact: string[];
   impact_summary: string;
   row_count: number;
   column_count: number;
+  compatibility_score: number;
+  confidence_score: number;
+  missing_required_columns: string[];
   notes: string;
 };
 
@@ -243,10 +282,12 @@ export type UploadCenterStatus = {
   datasets: UploadDataset[];
   readiness: Record<UploadReadinessKey, UploadReadinessItem>;
   history: UploadHistoryItem[];
+  compatibility_summary: UploadCompatibilityOverview;
+  contract_registry: DatasetContractRegistry;
 };
 
 export type StructuredUploadRegistrationRequest = {
-  dataset_id: Exclude<UploadDatasetKey, "forecast_input" | "bom" | "finance_spreadsheets" | "finance_documents" | "sales_orders">;
+  dataset_id: Extract<UploadDatasetAliasKey, "production" | "customers" | "clients" | "raw_material_inventory">;
   filename: string;
   format: string;
   validation_status: Exclude<UploadValidationStatus, "missing">;
@@ -271,4 +312,360 @@ export type RunSOPPipelineResponse = {
     file_format: "none" | "csv" | "excel";
     [key: string]: unknown;
   };
+};
+
+export type ForecastMethodName =
+  | "auto"
+  | "moving_average"
+  | "weighted_moving_average"
+  | "simple_exponential_smoothing"
+  | "holt_trend"
+  | "holt_winters_additive"
+  | "holt_winters_multiplicative"
+  | "historical_baseline_growth";
+
+export type PlanningFilters = {
+  product_codes?: string[];
+  customer_codes?: string[];
+  product_groups?: string[];
+  abc_classes?: string[];
+  start_date?: string | null;
+  end_date?: string | null;
+};
+
+export type PlanningGrowth = {
+  global_pct?: number;
+  by_product?: Record<string, number>;
+  by_customer?: Record<string, number>;
+  by_group?: Record<string, number>;
+  by_class?: Record<string, number>;
+};
+
+export type PlanningMtsMtuConfig = {
+  mts_coverage_days?: number;
+  mtu_coverage_days?: number;
+  excess_multiplier?: number;
+};
+
+export type PlanningProductionRunRequest = {
+  scenario_name?: string;
+  method?: ForecastMethodName;
+  horizon_months?: number;
+  seasonal_periods?: number;
+  filters?: PlanningFilters;
+  growth?: PlanningGrowth;
+  mts_mtu?: PlanningMtsMtuConfig;
+};
+
+export type PlanningMethodMetric = {
+  mae: number | null;
+  mape: number | null;
+  rmse: number | null;
+  bias: number | null;
+  support: number;
+  products_evaluated: number;
+};
+
+export type PlanningSummaryRow = {
+  [key: string]: unknown;
+};
+
+export type PlanningForecastConfidence = {
+  score: number;
+  percent: number;
+  label: string;
+};
+
+export type PlanningForecastVisual = {
+  historical_monthly: Array<{
+    period: string;
+    historical_quantity: number;
+    historical_value: number;
+  }>;
+  forecast_monthly: Array<{
+    period: string;
+    forecast_base: number;
+    forecast_adjusted: number;
+  }>;
+  by_dimension: Record<
+    "product" | "customer" | "group" | "class",
+    Array<{
+      entity: string;
+      historical_quantity: number;
+      forecast_base: number;
+      forecast_adjusted: number;
+      growth_impact_pct: number;
+      estimated_revenue: number;
+      forecast_confidence: number;
+    }>
+  >;
+};
+
+export type PlanningRiskLevelThreshold = {
+  key: string;
+  label: string;
+  min: number;
+  max: number;
+  color_token: string;
+};
+
+export type PlanningRiskHeatmapCell = {
+  score: number;
+  level_key: string;
+  level_label: string;
+  primary_driver_key: string;
+  primary_driver_label: string;
+  components: Record<string, number>;
+  contributions: Record<string, number>;
+  metrics: Record<string, unknown>;
+  limitations: string[];
+  [key: string]: unknown;
+};
+
+export type PlanningRiskHeatmap = {
+  name: string;
+  row_key: string;
+  column_key: string;
+  row_label: string;
+  column_label: string;
+  weights: Record<string, number>;
+  rows: string[];
+  columns: string[];
+  cells: PlanningRiskHeatmapCell[];
+};
+
+export type PlanningRiskScoring = {
+  generated_at: string;
+  score_scale: {
+    min: number;
+    max: number;
+  };
+  level_thresholds: PlanningRiskLevelThreshold[];
+  component_labels: Record<string, string>;
+  weights: Record<string, Record<string, number>>;
+  operational_heatmap: PlanningRiskHeatmap;
+  commercial_heatmap: PlanningRiskHeatmap;
+  integrated_heatmap: PlanningRiskHeatmap;
+  top_risks: Array<{
+    heatmap_type: string;
+    group?: string | null;
+    abc_class?: string | null;
+    customer?: string | null;
+    product?: string | null;
+    growth_impact_pct: number;
+    forecast: number;
+    score: number;
+    risk_level_key: string;
+    risk_level_label: string;
+    primary_driver_key: string;
+    primary_driver_label: string;
+  }>;
+  data_limitations: string[];
+};
+
+export type PlanningProductionResult = {
+  generated_at: string;
+  scenario_name: string;
+  method_selection_mode: "auto" | "manual";
+  selected_method: ForecastMethodName;
+  recommended_method: ForecastMethodName;
+  available_methods: ForecastMethodName[];
+  method_metrics: Record<string, PlanningMethodMetric>;
+  forecast_confidence?: PlanningForecastConfidence;
+  totals: {
+    base_forecast: number;
+    final_forecast: number;
+    growth_impact_pct: number;
+    historical_quantity?: number;
+    historical_value?: number;
+    estimated_revenue?: number;
+  };
+  filters_applied: Record<string, unknown>;
+  growth_parameters: Record<string, unknown>;
+  dimension_availability: {
+    product_group_available: boolean;
+    abc_class_available: boolean;
+    abc_class_source: string;
+  };
+  forecast_visual?: PlanningForecastVisual;
+  summary_by_product: PlanningSummaryRow[];
+  summary_by_customer: PlanningSummaryRow[];
+  summary_by_group: PlanningSummaryRow[];
+  summary_by_class: PlanningSummaryRow[];
+  summary_by_group_customer?: PlanningSummaryRow[];
+  summary_by_group_class?: PlanningSummaryRow[];
+  mts_mtu_scenarios: PlanningSummaryRow[];
+  risk_scoring?: PlanningRiskScoring;
+  risk_alerts: {
+    rupture_risk_count: number;
+    excess_risk_count: number;
+    missing_stock_count: number;
+    total_products_evaluated: number;
+  };
+  data_warnings: string[];
+};
+
+export type PlanningProductionExportRequest = {
+  request: PlanningProductionRunRequest;
+  use_latest_if_available?: boolean;
+};
+
+export type PlanningProductionLatestResponse = {
+  generated_at: string | null;
+  available: boolean;
+  data: PlanningProductionResult | null;
+};
+
+export type ExecutiveChatHistoryItem = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ExecutiveChatRequest = {
+  message: string;
+  history?: ExecutiveChatHistoryItem[];
+  include_planning_context?: boolean;
+  mode?: "short" | "detailed";
+};
+
+export type ExecutiveChatResponse = {
+  answer: string;
+  response_mode: "short" | "detailed";
+  blocks: {
+    direct_answer?: string;
+    evidence?: string[];
+    risks_limitations?: string[];
+    executive_recommendation?: string[];
+    [key: string]: unknown;
+  };
+  confidence: "high" | "medium" | "low";
+  partial: boolean;
+  limitations: string[];
+  missing_data: string[];
+  data_points: Array<{ label: string; value: unknown }>;
+  suggestions: string[];
+  context_used: Record<string, unknown>;
+  context_summary: Record<string, unknown>;
+  execution_meta?: Record<string, unknown>;
+  generated_at: string;
+};
+
+export type ExecutiveChatContextResponse = {
+  generated_at: string;
+  context_summary: Record<string, unknown>;
+  suggestions: string[];
+};
+
+export type UploadRuleResult = {
+  rule_id: string;
+  description: string;
+  severity: string;
+  type: string;
+  passed: boolean;
+  missing_columns: string[];
+};
+
+export type UploadValidationReport = {
+  dataset_id: UploadDatasetKey;
+  dataset_name: string;
+  validation_status: UploadValidationStatus;
+  availability_status: UploadReadinessStatus;
+  compatibility_status: UploadCompatibilityStatus;
+  compatibility_score: number;
+  confidence_score: number;
+  row_count: number;
+  column_count: number;
+  source_columns: string[];
+  recognized_columns: string[];
+  missing_required_columns: string[];
+  ignored_columns: string[];
+  alias_mapped_columns: Array<{
+    source_column: string;
+    canonical_column: string;
+    column_label: string;
+  }>;
+  required_coverage: {
+    matched: number;
+    total: number;
+    percent: number;
+  };
+  optional_coverage: {
+    matched: number;
+    total: number;
+    percent: number;
+  };
+  analytical_impact: {
+    modules: string[];
+    summary: string;
+  };
+  quality_gaps: string[];
+  rule_results: UploadRuleResult[];
+  summary: string;
+  source_format: string;
+  source_filename: string | null;
+  validated_at: string | null;
+  source_to_canonical: Record<string, string>;
+};
+
+export type DatasetCompatibilitySummary = {
+  dataset_id: UploadDatasetKey;
+  validation_status: UploadValidationStatus;
+  availability_status: UploadReadinessStatus;
+  compatibility_status: UploadCompatibilityStatus;
+  compatibility_score: number;
+  confidence_score: number;
+  missing_required_columns: string[];
+  quality_gaps: string[];
+  summary: string;
+};
+
+export type UploadCompatibilityOverview = {
+  average_confidence_score: number;
+  average_compatibility_score: number;
+  ready_datasets: number;
+  partial_datasets: number;
+  unavailable_datasets: number;
+  missing_datasets: string[];
+  largest_gaps: string[];
+  datasets: Record<UploadDatasetKey, DatasetCompatibilitySummary>;
+  ai_readiness: {
+    coverage_percent: number;
+    confidence_score: number;
+    quality_gaps: string[];
+    missing_datasets: string[];
+  };
+};
+
+export type DatasetContractRegistry = {
+  version: string;
+  aliases: Record<string, UploadDatasetKey>;
+  datasets: DatasetContract[];
+};
+
+export type ReadinessModule = {
+  key: string;
+  label: string;
+  status: "available" | "partial" | "unavailable";
+  confidence: "high" | "medium" | "low";
+  datasets: string[];
+  missing_datasets: string[];
+  description: string;
+};
+
+export type Readiness = {
+  overall_status: "available" | "partial" | "unavailable";
+  overall_confidence: "high" | "medium" | "low";
+  modules: ReadinessModule[];
+};
+
+export type ExecutiveContext = {
+  loaded_datasets: string[];
+  missing_datasets: string[];
+  status_by_module: Record<string, "available" | "partial" | "unavailable">;
+  quality_score_by_dataset: Record<string, number>;
+  readiness_score_by_module: Record<string, number>;
+  key_gaps: string[];
+  executive_impact_of_gaps: string[];
+  dre_available: boolean;
+  limitations_for_future_analysis: string[];
 };

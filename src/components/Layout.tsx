@@ -1,5 +1,6 @@
 import { Outlet } from "react-router-dom";
 import TopNav from "./TopNav";
+import ExecutiveChatWidget from "./ExecutiveChatWidget";
 
 export default function Layout() {
   return (
@@ -8,6 +9,7 @@ export default function Layout() {
       <main className="flex-1 relative">
         <Outlet />
       </main>
+      <ExecutiveChatWidget />
     </div>
   );
 }

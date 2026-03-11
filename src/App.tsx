@@ -7,6 +7,7 @@ import DemandaFGPage from "@/pages/DemandaFGPage";
 import AbcXyzPage from "@/pages/AbcXyzPage";
 import ForecastPage from "@/pages/ForecastPage";
 import MtsPage from "@/pages/MtsPage";
+import PlanningProductionPage from "@/pages/PlanningProductionPage";
 import ComplexidadePage from "@/pages/ComplexidadePage";
 import RMUploadPage from "@/pages/RMUploadPage";
 import RMSlaPage from "@/pages/RMSlaPage";
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="upload" element={<UploadPage />} />
             <Route path="demanda" element={<DemandaFGPage />} />
             <Route path="abc-xyz" element={<AbcXyzPage />} />
+            <Route path="planejamento-producao" element={<PlanningProductionPage />} />
             <Route path="forecast" element={<ForecastPage />} />
             <Route path="mts" element={<MtsPage />} />
             <Route path="complexidade" element={<ComplexidadePage />} />

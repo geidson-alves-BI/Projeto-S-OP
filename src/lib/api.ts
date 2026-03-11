@@ -6,10 +6,24 @@ import type {
   AIInterpretResponse,
   AITestConnectionResponse,
   ContextPack,
+  ExecutiveChatRequest,
+  ExecutiveChatContextResponse,
+  ExecutiveChatResponse,
+  DatasetContract,
+  DatasetContractRegistry,
+  DatasetCompatibilitySummary,
+  ExecutiveContext,
+  PlanningProductionExportRequest,
+  PlanningProductionLatestResponse,
+  PlanningProductionResult,
+  PlanningProductionRunRequest,
+  Readiness,
   RunSOPPipelineRequest,
   RunSOPPipelineResponse,
   StructuredUploadRegistrationRequest,
+  UploadDatasetAliasKey,
   UploadCenterStatus,
+  UploadValidationReport,
 } from "@/types/analytics";
 
 const rawBaseUrl = import.meta.env.VITE_BACKEND_URL ?? "http://127.0.0.1:8000";
@@ -186,6 +200,40 @@ export async function getUploadCenter() {
   return getJSON<UploadCenterStatus>("/analytics/upload_center");
 }
 
+
+export async function getReadiness() {
+  return getJSON<Readiness>("/analytics/readiness");
+}
+
+export async function getExecutiveContext() {
+  return getJSON<ExecutiveContext>("/analytics/executive_context");
+}
+
+export async function getDatasetContracts() {
+  return getJSON<DatasetContractRegistry>("/analytics/dataset_contracts");
+}
+
+export async function getDatasetContract(datasetId: UploadDatasetAliasKey) {
+  return getJSON<DatasetContract>(`/analytics/dataset_contracts/${datasetId}`);
+}
+
+export async function getDatasetValidation(datasetId: UploadDatasetAliasKey) {
+  return getJSON<{
+    dataset_id: string;
+    dataset_name: string;
+    last_validation: UploadValidationReport | null;
+    compatibility_summary: DatasetCompatibilitySummary | null;
+    uploaded: boolean;
+    uploaded_at: string | null;
+    filename: string | null;
+    format: string | null;
+  }>(`/analytics/dataset_validation/${datasetId}`);
+}
+
+export async function getDatasetCompatibility() {
+  return getJSON<UploadCenterStatus["compatibility_summary"]>("/analytics/dataset_compatibility");
+}
+
 export async function getForecastResults() {
   return getJSON<{ items: unknown[]; rowCount: number }>("/analytics/forecast_results");
 }
@@ -194,11 +242,16 @@ export async function registerStructuredUpload(payload: StructuredUploadRegistra
   return postJSON<UploadCenterStatus>("/analytics/register_structured_upload", payload);
 }
 
-export async function uploadDatasetFile(datasetId: string, file: File) {
+export async function uploadDatasetFile(datasetId: UploadDatasetAliasKey, file: File) {
   const formData = new FormData();
   formData.append("dataset_id", datasetId);
   formData.append("file", file);
-  return postMultipart<{ dataset: unknown; storagePath: string }>("/analytics/upload_dataset_file", formData);
+  return postMultipart<{
+    dataset: unknown;
+    validation: UploadValidationReport;
+    compatibility: DatasetCompatibilitySummary;
+    storagePath: string;
+  }>("/analytics/upload_dataset_file", formData);
 }
 
 export async function interpretAI(payload: AIInterpretRequest) {
@@ -219,4 +272,39 @@ export async function testAIConnection() {
 
 export async function runSOPPipeline(payload: RunSOPPipelineRequest) {
   return postJSON<RunSOPPipelineResponse>("/analytics/run_sop_pipeline", payload);
+}
+
+export async function runPlanningProduction(payload: PlanningProductionRunRequest) {
+  return postJSON<PlanningProductionResult>("/analytics/planning_production/run", payload);
+}
+
+export async function getLatestPlanningProduction() {
+  return getJSON<PlanningProductionLatestResponse>("/analytics/planning_production/latest");
+}
+
+export async function exportPlanningProductionCSV(payload: PlanningProductionExportRequest) {
+  return downloadFileFromPost(
+    "/analytics/planning_production/export/csv",
+    payload,
+    "planning_production.csv",
+  );
+}
+
+export async function exportPlanningProductionPDF(payload: PlanningProductionExportRequest) {
+  return downloadFileFromPost(
+    "/analytics/planning_production/export/pdf",
+    payload,
+    "planning_production.pdf",
+  );
+}
+
+export async function sendExecutiveChat(payload: ExecutiveChatRequest) {
+  return postJSON<ExecutiveChatResponse>("/ai/executive_chat", payload);
+}
+
+export async function getExecutiveChatContext(includePlanningContext = true) {
+  const query = includePlanningContext ? "true" : "false";
+  return getJSON<ExecutiveChatContextResponse>(
+    `/ai/executive_chat_context?include_planning_context=${query}`,
+  );
 }

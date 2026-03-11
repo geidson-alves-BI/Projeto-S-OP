@@ -94,7 +94,7 @@ export default function FinanceiroPage() {
         moduleKey="finance"
         title="Prontidao financeira"
         description="Planilhas e documentos financeiros passaram para a central de upload. Esta aba usa a cobertura operacional ja registrada para traduzir impacto economico."
-        datasetIds={["finance_spreadsheets", "finance_documents", "raw_material_inventory", "bom"]}
+        datasetIds={["finance_documents", "raw_material_inventory", "bom", "sales_orders"]}
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi import File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,15 +15,34 @@ from .ai.ai_router import router as ai_router
 from .abcxyz import compute_abcxyz
 from .bom import normalize_bom_rows
 from .context_pack import build_context_pack
+from .dataset_contracts import get_contract_registry_payload, get_dataset_contract
+from .dataset_validation import (
+    TABULAR_FORMATS,
+    build_document_validation_report,
+    build_forecast_items,
+    build_tabular_upload_bundle,
+    build_validation_report,
+    downgrade_validation_report,
+    parse_tabular_bytes,
+)
 from .demand_forecast_engine import build_demand_forecast
 from .forecast import forecast_naive
 from .memory_store import analytics_store
 from .raw_material_forecast import build_raw_material_forecast
+from .readiness import get_readiness_summary
+from .context import build_executive_context
+from .planning_engine import (
+    export_planning_result_csv,
+    export_planning_result_pdf,
+    run_planning_analysis,
+)
 from .schemas import (
     ABCXYZRequest,
     BOMUploadRequest,
     DemandForecastEngineRequest,
     ForecastRequest,
+    PlanningProductionExportRequest,
+    PlanningProductionRunRequest,
     MTSProductionSimulationRequest,
     RawMaterialForecastRequest,
     RunSOPPipelineRequest,
@@ -41,7 +59,6 @@ from .strategy_report import (
     export_strategy_report_csv,
     export_strategy_report_excel,
 )
-from .upload_manifest import get_dataset_definition
 from .utils import ensure_datetime, to_dataframe
 
 app = FastAPI(title="Control Tower Engine", version="0.2.0")
@@ -80,17 +97,40 @@ def _store_uploaded_file(dataset_id: str, filename: str, content: bytes) -> str:
 
 
 def _read_tabular_upload(filename: str, content: bytes) -> list[dict[str, Any]]:
-    ext = _build_file_format(filename)
-    buffer = BytesIO(content)
-    if ext == ".csv":
-        df = pd.read_csv(buffer, sep=None, engine="python")
-    elif ext in {".xlsx", ".xls"}:
-        df = pd.read_excel(buffer)
-    else:
-        raise ValueError(f"Unsupported tabular format for upload: {ext}")
-
-    df = df.fillna("")
+    df = parse_tabular_bytes(filename, content)
     return df.to_dict(orient="records")
+
+
+def _execute_planning_run(req: PlanningProductionRunRequest) -> dict[str, Any]:
+    sales_rows = analytics_store.get_dataset_rows("sales_orders")
+    customers_rows = analytics_store.get_dataset_rows("customers")
+    inventory_rows = analytics_store.get_dataset_rows("raw_material_inventory")
+
+    result = run_planning_analysis(
+        sales_rows=sales_rows,
+        customers_rows=customers_rows,
+        inventory_rows=inventory_rows,
+        product_codes=req.filters.product_codes,
+        customer_codes=req.filters.customer_codes,
+        product_groups=req.filters.product_groups,
+        abc_classes=req.filters.abc_classes,
+        start_date=req.filters.start_date,
+        end_date=req.filters.end_date,
+        method=req.method,
+        horizon_months=req.horizon_months,
+        seasonal_periods=req.seasonal_periods,
+        scenario_name=req.scenario_name,
+        growth_global_pct=req.growth.global_pct,
+        growth_by_product=req.growth.by_product,
+        growth_by_customer=req.growth.by_customer,
+        growth_by_group=req.growth.by_group,
+        growth_by_class=req.growth.by_class,
+        mts_coverage_days=req.mts_mtu.mts_coverage_days,
+        mtu_coverage_days=req.mts_mtu.mtu_coverage_days,
+        excess_multiplier=req.mts_mtu.excess_multiplier,
+    )
+    analytics_store.set_planning_production_result(result)
+    return result
 
 
 @app.get("/")
@@ -222,6 +262,7 @@ async def upload_bom(request: Request):
             filename=source_filename,
             file_format=_build_file_format(source_filename),
             validation_status="invalid",
+            availability_status="unavailable",
             row_count=len(source_rows),
             column_count=len(source_rows[0].keys()) if source_rows else 0,
             columns_detected=list(source_rows[0].keys()) if source_rows else [],
@@ -235,6 +276,7 @@ async def upload_bom(request: Request):
         filename=source_filename,
         file_format=_build_file_format(source_filename),
         validation_status="valid",
+        availability_status="ready",
         row_count=int(len(bom_df)),
         column_count=len(list(bom_df.columns)),
         columns_detected=[str(column) for column in bom_df.columns],
@@ -282,6 +324,7 @@ def simulate_mts_production(req: MTSProductionSimulationRequest):
 
 @app.post("/analytics/forecast_demand")
 def forecast_demand(req: DemandForecastEngineRequest):
+    analytics_store.set_dataset_rows("forecast_input", [item.model_dump() for item in req.items])
     forecast_df = build_demand_forecast([item.model_dump() for item in req.items])
     analytics_store.set_forecast(forecast_df)
     analytics_store.record_dataset_upload(
@@ -289,6 +332,7 @@ def forecast_demand(req: DemandForecastEngineRequest):
         filename=req.source_filename or "forecast_input.json",
         file_format=_build_file_format(req.source_filename or "forecast_input.json"),
         validation_status="valid" if not forecast_df.empty else "partial",
+        availability_status="ready" if not forecast_df.empty else "unavailable",
         row_count=len(req.items),
         column_count=len(req.items[0].model_dump().keys()) if req.items else 0,
         columns_detected=list(req.items[0].model_dump().keys()) if req.items else [],
@@ -433,10 +477,49 @@ def run_sop_pipeline(req: RunSOPPipelineRequest):
     }
 
 
+
+@app.get("/analytics/readiness")
+def readiness():
+    manifest = analytics_store.get_dataset_manifest()
+    return get_readiness_summary(manifest)
+
+
+@app.get("/analytics/executive_context")
+def executive_context():
+    manifest = analytics_store.get_dataset_manifest()
+    return build_executive_context(manifest)
+
+
 @app.get("/analytics/context_pack")
 def context_pack():
     payload = build_context_pack(analytics_store.get_session_snapshot())
     return payload
+
+
+@app.get("/analytics/dataset_contracts")
+def dataset_contracts():
+    return get_contract_registry_payload()
+
+
+@app.get("/analytics/dataset_contracts/{dataset_id}")
+def dataset_contract(dataset_id: str):
+    try:
+        return get_dataset_contract(dataset_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Unknown dataset_id: {dataset_id}") from exc
+
+
+@app.get("/analytics/dataset_validation/{dataset_id}")
+def dataset_validation(dataset_id: str):
+    try:
+        return analytics_store.get_dataset_validation(dataset_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Unknown dataset_id: {dataset_id}") from exc
+
+
+@app.get("/analytics/dataset_compatibility")
+def dataset_compatibility():
+    return analytics_store.get_dataset_compatibility_payload()
 
 
 @app.get("/analytics/forecast_results")
@@ -447,6 +530,67 @@ def forecast_results():
     return {"items": forecast_df.to_dict(orient="records"), "rowCount": int(len(forecast_df))}
 
 
+@app.post("/analytics/planning_production/run")
+def planning_production_run(req: PlanningProductionRunRequest):
+    try:
+        result = _execute_planning_run(req)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
+@app.get("/analytics/planning_production/latest")
+def planning_production_latest():
+    payload = analytics_store.get_planning_production_result()
+    if payload is None:
+        return {"generated_at": None, "available": False, "data": None}
+    return {"generated_at": payload.get("generated_at"), "available": True, "data": payload}
+
+
+@app.post("/analytics/planning_production/export/csv")
+def planning_production_export_csv(req: PlanningProductionExportRequest):
+    try:
+        if req.use_latest_if_available:
+            latest = analytics_store.get_planning_production_result()
+            if latest:
+                result = latest
+            else:
+                result = _execute_planning_run(req.request)
+        else:
+            result = _execute_planning_run(req.request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    file_bytes = export_planning_result_csv(result)
+    return StreamingResponse(
+        BytesIO(file_bytes),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="planning_production.csv"'},
+    )
+
+
+@app.post("/analytics/planning_production/export/pdf")
+def planning_production_export_pdf(req: PlanningProductionExportRequest):
+    try:
+        if req.use_latest_if_available:
+            latest = analytics_store.get_planning_production_result()
+            if latest:
+                result = latest
+            else:
+                result = _execute_planning_run(req.request)
+        else:
+            result = _execute_planning_run(req.request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    file_bytes = export_planning_result_pdf(result)
+    return StreamingResponse(
+        BytesIO(file_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="planning_production.pdf"'},
+    )
+
+
 @app.get("/analytics/upload_center")
 def upload_center():
     return analytics_store.get_upload_center_payload()
@@ -454,12 +598,14 @@ def upload_center():
 
 @app.post("/analytics/register_structured_upload")
 def register_structured_upload(req: StructuredUploadRegistrationRequest):
+    availability_status = "ready" if req.validation_status == "valid" else "partial" if req.validation_status == "partial" else "unavailable"
     try:
         analytics_store.record_dataset_upload(
             req.dataset_id,
             filename=req.filename,
             file_format=req.format,
             validation_status=req.validation_status,
+            availability_status=availability_status,
             row_count=req.row_count,
             column_count=req.column_count,
             columns_detected=req.columns_detected,
@@ -476,7 +622,7 @@ async def upload_dataset_file(
     file: UploadFile = File(...),
 ):
     try:
-        definition = get_dataset_definition(dataset_id)
+        definition = get_dataset_contract(dataset_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown dataset_id: {dataset_id}") from exc
 
@@ -488,29 +634,121 @@ async def upload_dataset_file(
             detail=f"Unsupported format for {dataset_id}: {file_format}",
         )
 
+    canonical_dataset_id = str(definition["dataset_id"])
     content = await file.read()
-    storage_path = _store_uploaded_file(dataset_id, filename, content)
+    storage_path = _store_uploaded_file(canonical_dataset_id, filename, content)
+    validation: dict[str, Any]
+    notes = "Arquivo armazenado na central de dados."
 
-    default_notes = {
-        "sales_orders": "Arquivo comercial armazenado; integracao analitica preparada para a proxima etapa.",
-        "finance_spreadsheets": "Planilha financeira armazenada; leitura estruturada fica preparada para evolucao.",
-        "finance_documents": "Documento armazenado para futura leitura inteligente.",
-    }
-    validation_status = "partial" if dataset_id in {"sales_orders", "finance_spreadsheets", "finance_documents"} else "valid"
+    if definition["storage_kind"] == "document" and file_format not in TABULAR_FORMATS:
+        analytics_store.set_dataset_rows(canonical_dataset_id, [])
+        validation = build_document_validation_report(canonical_dataset_id, filename, file_format)
+        notes = validation["summary"]
+    else:
+        try:
+            bundle = build_tabular_upload_bundle(canonical_dataset_id, filename, content)
+        except Exception as exc:
+            analytics_store.set_dataset_rows(canonical_dataset_id, [])
+            validation = downgrade_validation_report(
+                build_validation_report(
+                    canonical_dataset_id,
+                    source_columns=[],
+                    row_count=0,
+                    file_format=file_format,
+                    filename=filename,
+                ),
+                gap=f"Nao foi possivel ler a base enviada: {exc}",
+                validation_status="invalid",
+                availability_status="unavailable",
+                compatibility_status="incompatible",
+            )
+            notes = validation["summary"]
+        else:
+            validation = bundle["validation"]
+            notes = validation["summary"]
+            analytics_store.set_dataset_rows(canonical_dataset_id, bundle["normalized_rows"])
+
+            if canonical_dataset_id == "forecast_input":
+                items = build_forecast_items(bundle["normalized_rows"])
+                if not items:
+                    validation = downgrade_validation_report(
+                        validation,
+                        gap="Nenhum SKU com sinal de demanda valido foi encontrado para consolidar o forecast.",
+                        validation_status="partial",
+                        availability_status="unavailable",
+                        compatibility_status="partial",
+                    )
+                else:
+                    forecast_df = build_demand_forecast(items)
+                    analytics_store.set_forecast(forecast_df)
+                    if forecast_df.empty:
+                        validation = downgrade_validation_report(
+                            validation,
+                            gap="Forecast processado sem registros consolidados.",
+                            validation_status="partial",
+                            availability_status="unavailable",
+                            compatibility_status="partial",
+                        )
+                    else:
+                        notes = f"Forecast consolidado com {len(forecast_df)} registros."
+
+            elif canonical_dataset_id == "bom":
+                try:
+                    bom_df = normalize_bom_rows(
+                        rows=bundle["normalized_rows"],
+                        product_code_col="product_code",
+                        raw_material_code_col="raw_material_code",
+                        raw_material_name_col="raw_material_name",
+                        qty_per_unit_col="qty_per_unit",
+                        unit_cost_col="unit_cost",
+                    )
+                except ValueError as exc:
+                    validation = downgrade_validation_report(
+                        validation,
+                        gap=str(exc),
+                        validation_status="partial",
+                        availability_status="unavailable",
+                        compatibility_status="partial",
+                    )
+                else:
+                    if bom_df.empty:
+                        validation = downgrade_validation_report(
+                            validation,
+                            gap="A estrutura enviada nao trouxe combinacoes validas entre produto final e materia-prima.",
+                            validation_status="partial",
+                            availability_status="unavailable",
+                            compatibility_status="partial",
+                        )
+                    else:
+                        analytics_store.set_bom(bom_df)
+                        notes = f"{len(bom_df)} linhas validadas para estrutura de produto."
+
+            elif canonical_dataset_id == "sales_orders" and validation["availability_status"] == "ready":
+                notes = "Carteira comercial validada e pronta para a camada analitica."
+            elif canonical_dataset_id == "customers" and validation["availability_status"] == "ready":
+                notes = "Base de clientes validada e preparada para cruzamentos comerciais."
+            elif canonical_dataset_id == "production" and validation["availability_status"] == "ready":
+                notes = "Historico de producao validado para leitura operacional."
+            elif canonical_dataset_id == "raw_material_inventory" and validation["availability_status"] == "ready":
+                notes = "Estoque de materia-prima validado para cobertura e criticidade."
 
     payload = analytics_store.record_dataset_upload(
-        dataset_id,
+        canonical_dataset_id,
         filename=filename,
         file_format=file_format,
-        validation_status=validation_status,
-        row_count=0,
-        column_count=0,
-        columns_detected=[],
-        notes=default_notes.get(dataset_id, "Arquivo armazenado na central de dados."),
+        validation_status=str(validation["validation_status"]),
+        availability_status=str(validation["availability_status"]),
+        row_count=int(validation["row_count"]),
+        column_count=int(validation["column_count"]),
+        columns_detected=list(validation.get("recognized_columns", [])),
+        notes=notes,
         storage_path=storage_path,
+        validation_report=validation,
     )
     return {
         "dataset": payload,
+        "validation": validation,
+        "compatibility": payload.get("compatibility_summary"),
         "storagePath": storage_path,
     }
 
@@ -540,6 +778,7 @@ def analytics_data_status():
     return {
         "strategyReport": build_snapshot_status("last_strategy_report"),
         "forecast": build_snapshot_status("last_forecast"),
+        "planningProduction": build_snapshot_status("last_planning_production"),
         "mtsSimulation": build_snapshot_status("last_mts_simulation"),
         "rawMaterialForecast": build_snapshot_status("last_raw_material_forecast"),
         "bom": {

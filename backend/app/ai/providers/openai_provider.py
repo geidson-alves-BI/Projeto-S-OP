@@ -55,22 +55,37 @@ class OpenAIProvider(BaseAIProvider):
     ) -> dict[str, Any]:
         system_prompt = self._build_system_prompt(persona=persona, language=language)
         user_prompt = self._build_user_prompt(persona=persona, context_pack=context_pack)
+        parsed = self.generate_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.1,
+        )
+        parsed["persona"] = persona.code
+        return parsed
 
-        payload = {
+    def generate_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.1,
+        max_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "model": self.model,
-            "temperature": 0.1,
+            "temperature": max(float(temperature), 0.0),
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
         }
+        if isinstance(max_tokens, int) and max_tokens > 0:
+            payload["max_tokens"] = max_tokens
 
         api_response = self._post_json(payload)
         content = self._extract_message_content(api_response)
-        parsed = self._parse_json_object(content)
-        parsed["persona"] = persona.code
-        return parsed
+        return self._parse_json_object(content)
 
     def _build_system_prompt(self, persona: PersonaProfile, language: str) -> str:
         persona_focus = "; ".join(persona.focus)

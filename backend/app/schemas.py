@@ -200,3 +200,87 @@ class RunSOPPipelineRequest(BaseModel):
 class RunSOPPipelineResponse(BaseModel):
     context_pack_2_0: Dict[str, Any]
     execution_summary: Dict[str, Any]
+
+
+ForecastMethodName = Literal[
+    "auto",
+    "moving_average",
+    "weighted_moving_average",
+    "simple_exponential_smoothing",
+    "holt_trend",
+    "holt_winters_additive",
+    "holt_winters_multiplicative",
+    "historical_baseline_growth",
+]
+
+
+class PlanningFiltersRequest(BaseModel):
+    product_codes: List[str] = Field(default_factory=list)
+    customer_codes: List[str] = Field(default_factory=list)
+    product_groups: List[str] = Field(default_factory=list)
+    abc_classes: List[str] = Field(default_factory=list)
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+
+class PlanningGrowthRequest(BaseModel):
+    global_pct: float = Field(default=0.0, ge=-95.0, le=500.0)
+    by_product: Dict[str, float] = Field(default_factory=dict)
+    by_customer: Dict[str, float] = Field(default_factory=dict)
+    by_group: Dict[str, float] = Field(default_factory=dict)
+    by_class: Dict[str, float] = Field(default_factory=dict)
+
+
+class PlanningMtsMtuRequest(BaseModel):
+    mts_coverage_days: int = Field(default=45, ge=1, le=365)
+    mtu_coverage_days: int = Field(default=20, ge=1, le=365)
+    excess_multiplier: float = Field(default=1.35, ge=1.0, le=5.0)
+
+
+class PlanningProductionRunRequest(BaseModel):
+    scenario_name: str = "Cenario principal"
+    method: ForecastMethodName = "auto"
+    horizon_months: int = Field(default=6, ge=1, le=24)
+    seasonal_periods: int = Field(default=12, ge=2, le=24)
+    filters: PlanningFiltersRequest = Field(default_factory=PlanningFiltersRequest)
+    growth: PlanningGrowthRequest = Field(default_factory=PlanningGrowthRequest)
+    mts_mtu: PlanningMtsMtuRequest = Field(default_factory=PlanningMtsMtuRequest)
+
+
+class PlanningProductionExportRequest(BaseModel):
+    request: PlanningProductionRunRequest
+    use_latest_if_available: bool = False
+
+
+class ExecutiveChatHistoryItem(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ExecutiveChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+    history: List[ExecutiveChatHistoryItem] = Field(default_factory=list)
+    include_planning_context: bool = True
+    mode: Literal["short", "detailed"] = "short"
+
+
+class ExecutiveChatResponse(BaseModel):
+    answer: str
+    response_mode: Literal["short", "detailed"] = "short"
+    blocks: Dict[str, Any] = Field(default_factory=dict)
+    confidence: Literal["high", "medium", "low"]
+    partial: bool
+    limitations: List[str]
+    missing_data: List[str]
+    data_points: List[Dict[str, Any]]
+    suggestions: List[str]
+    context_used: Dict[str, Any]
+    context_summary: Dict[str, Any] = Field(default_factory=dict)
+    execution_meta: Dict[str, Any] = Field(default_factory=dict)
+    generated_at: str
+
+
+class ExecutiveChatContextResponse(BaseModel):
+    generated_at: str
+    context_summary: Dict[str, Any]
+    suggestions: List[str]

@@ -186,7 +186,7 @@ export default function MtsPage() {
         moduleKey="mts_mto"
         title="Prontidao da politica MTS/MTO"
         description="A base operacional, o forecast consolidado e a estrutura de produto agora entram pela central de upload."
-        datasetIds={["production", "clients", "forecast_input", "bom"]}
+        datasetIds={["production", "customers", "forecast_input", "bom"]}
       />
 
       {!state ? (

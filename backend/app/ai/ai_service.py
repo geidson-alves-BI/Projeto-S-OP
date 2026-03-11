@@ -14,8 +14,17 @@ from ..schemas import (
     AIInterpretRequest,
     AIInterpretResponse,
     AITestConnectionResponse,
+    ExecutiveChatContextResponse,
+    ExecutiveChatRequest,
+    ExecutiveChatResponse,
 )
 from .config_store import AIConfigStore, DEFAULT_OPENAI_MODEL, FALLBACK_MODEL_NAME
+from .executive_chat import (
+    build_executive_chat_openai_prompt,
+    build_executive_chat_context_payload,
+    build_executive_chat_response,
+    merge_executive_chat_openai_output,
+)
 from .guardrails import enforce_no_hallucination, validate_context_pack
 from .personas import get_persona_profile
 from .providers.deterministic_provider import DeterministicProvider
@@ -295,6 +304,111 @@ class AIService:
 
     def _load_current_context_pack(self) -> dict[str, Any]:
         return build_context_pack(analytics_store.get_session_snapshot())
+
+    def executive_chat(self, request: ExecutiveChatRequest) -> ExecutiveChatResponse:
+        planning_result = (
+            analytics_store.get_planning_production_result()
+            if request.include_planning_context
+            else None
+        )
+        sales_rows = analytics_store.get_dataset_rows("sales_orders")
+        manifest = analytics_store.get_dataset_manifest()
+        history_payload = [item.model_dump() for item in request.history]
+        fallback_payload = build_executive_chat_response(
+            message=request.message,
+            planning_result=planning_result,
+            sales_rows=sales_rows,
+            manifest=manifest,
+            history=history_payload,
+            mode=request.mode,
+        )
+        payload = dict(fallback_payload)
+        parsing_warnings: list[str] = []
+
+        snapshot = self.config_store.get_snapshot()
+        provider_used = "rule_based"
+        model_used = FALLBACK_MODEL_NAME
+        fallback_triggered = True
+        fallback_reason = "fallback_only" if snapshot.provider == "deterministic" else "provider_not_configured"
+
+        openai_provider = self._build_openai_provider(snapshot)
+        if snapshot.provider == "openai" and openai_provider is not None:
+            try:
+                prompt_payload = build_executive_chat_openai_prompt(
+                    message=request.message,
+                    mode=request.mode,
+                    context_summary=fallback_payload.get("context_summary", {}),
+                    history=history_payload,
+                    fallback_payload=fallback_payload,
+                )
+                openai_output = openai_provider.generate_json(
+                    system_prompt=prompt_payload["system_prompt"],
+                    user_prompt=prompt_payload["user_prompt"],
+                    temperature=0.15 if request.mode == "detailed" else 0.1,
+                )
+                payload, parsing_warnings = merge_executive_chat_openai_output(
+                    openai_output=openai_output,
+                    fallback_payload=fallback_payload,
+                    mode=request.mode,
+                )
+                provider_used = openai_provider.name
+                model_used = snapshot.model
+                fallback_triggered = False
+                fallback_reason = None
+            except OpenAIProviderError as exc:
+                fallback_reason = exc.reason
+                logger.exception(
+                    "OpenAI executive chat falhou; fallback para rule-based. reason=%s",
+                    exc.reason,
+                )
+            except Exception:
+                fallback_reason = "openai_error"
+                logger.exception(
+                    "Erro inesperado no executive chat com OpenAI; fallback para rule-based."
+                )
+        elif snapshot.provider == "openai" and openai_provider is None:
+            fallback_reason = "provider_not_configured"
+
+        context_used = payload.get("context_used")
+        if not isinstance(context_used, dict):
+            context_used = {}
+        context_used["execution"] = {
+            "provider_used": provider_used,
+            "model_used": model_used,
+            "fallback_triggered": fallback_triggered,
+            "fallback_reason": fallback_reason,
+            "parsing_warnings": parsing_warnings,
+        }
+        payload["context_used"] = context_used
+        payload["execution_meta"] = {
+            "provider_used": provider_used,
+            "model_used": model_used,
+            "fallback_triggered": fallback_triggered,
+            "fallback_reason": fallback_reason,
+            "parsing_warnings": parsing_warnings,
+        }
+        return ExecutiveChatResponse.model_validate(payload)
+
+    def executive_chat_context(
+        self,
+        *,
+        include_planning_context: bool = True,
+        history: list[dict[str, Any]] | None = None,
+    ) -> ExecutiveChatContextResponse:
+        planning_result = (
+            analytics_store.get_planning_production_result()
+            if include_planning_context
+            else None
+        )
+        sales_rows = analytics_store.get_dataset_rows("sales_orders")
+        manifest = analytics_store.get_dataset_manifest()
+        payload = build_executive_chat_context_payload(
+            planning_result=planning_result,
+            sales_rows=sales_rows,
+            manifest=manifest,
+            history=history or [],
+        )
+        return ExecutiveChatContextResponse.model_validate(payload)
 
     def _build_openai_provider(self, snapshot: Any) -> OpenAIProvider | None:
         if snapshot.provider != "openai" or not snapshot.api_key:

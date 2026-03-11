@@ -60,7 +60,7 @@ export default function DemandaFGPage() {
         moduleKey="overall"
         title="Cobertura operacional do modulo Supply"
         description="A ingestao ficou centralizada em Upload de Dados. Esta aba passa a consumir a base operacional ja consolidada para leitura executiva."
-        datasetIds={["production", "sales_orders", "clients"]}
+        datasetIds={["production", "sales_orders", "customers"]}
       />
 
       {!state ? (

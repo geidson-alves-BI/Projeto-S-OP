@@ -38,6 +38,7 @@ const navSections = [
     label: "Producao / Planejamento",
     icon: TrendingUp,
     items: [
+      { to: "/planejamento-producao", label: "Planejamento e Producao" },
       { to: "/forecast", label: "Forecast" },
       { to: "/mts", label: "MTS / MTO" },
       { to: "/complexidade", label: "Complexidade" },

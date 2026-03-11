@@ -263,6 +263,12 @@ def build_context_pack(session_snapshot: dict[str, Any]) -> dict[str, Any]:
     forecast_df = _as_dataframe(forecast_records)
     raw_material_df = _as_dataframe(raw_material_records)
     simulation_df = _as_dataframe(mts_sim_records)
+    planning_snapshot = session_snapshot.get("last_planning_production", {})
+    planning_payload: dict[str, Any] = {}
+    if isinstance(planning_snapshot, dict):
+        raw_payload = planning_snapshot.get("payload", {})
+        if isinstance(raw_payload, dict):
+            planning_payload = raw_payload
 
     top_products = _top_products(strategy_df)
     mts_products, mto_products, mts_count, mto_count = _strategy_products(strategy_df)
@@ -286,6 +292,28 @@ def build_context_pack(session_snapshot: dict[str, Any]) -> dict[str, Any]:
         has_raw_material=has_raw_material,
     )
 
+    planning_context: dict[str, Any] = {}
+    has_planning = False
+    if planning_payload:
+        has_planning = True
+        risk_scoring = planning_payload.get("risk_scoring", {})
+        if not isinstance(risk_scoring, dict):
+            risk_scoring = {}
+        planning_context = {
+            "generated_at": planning_payload.get("generated_at"),
+            "scenario_name": planning_payload.get("scenario_name"),
+            "selected_method": planning_payload.get("selected_method"),
+            "recommended_method": planning_payload.get("recommended_method"),
+            "filters_applied": planning_payload.get("filters_applied", {}),
+            "totals": planning_payload.get("totals", {}),
+            "forecast_confidence": planning_payload.get("forecast_confidence", {}),
+            "risk_alerts": planning_payload.get("risk_alerts", {}),
+            "risk_top": risk_scoring.get("top_risks", [])[:5] if isinstance(risk_scoring.get("top_risks"), list) else [],
+            "risk_limitations": risk_scoring.get("data_limitations", []),
+            "data_warnings": planning_payload.get("data_warnings", []),
+        }
+    inputs_available["planning_production"] = has_planning
+
     return {
         "top_products": top_products,
         "mts_products": mts_products,
@@ -295,6 +323,7 @@ def build_context_pack(session_snapshot: dict[str, Any]) -> dict[str, Any]:
         "forecast_summary": forecast_summary,
         "raw_material_impact": raw_material_impact,
         "financial_impact": financial_impact,
+        "planning_production": planning_context,
         "data_quality": data_quality,
         "generated_at": _now_iso(),
         "inputs_available": inputs_available,
