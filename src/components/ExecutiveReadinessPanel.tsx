@@ -4,6 +4,7 @@ import { formatReadinessStatus, getStatusClasses } from "@/lib/upload-center";
 
 export function ExecutiveReadinessPanel() {
   const { readiness, loading, error } = useReadiness();
+  const modules = Array.isArray(readiness?.modules) ? readiness.modules : [];
 
   if (loading) {
     return (
@@ -36,33 +37,44 @@ export function ExecutiveReadinessPanel() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {readiness?.modules.map((item) => (
-          <article key={item.key} className="metric-card space-y-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-                  {item.label}
-                </p>
-                <h3 className="mt-2 text-lg font-semibold text-foreground">
-                  {formatReadinessStatus(item.status)}
-                </h3>
+        {modules.map((item) => {
+          const missingDatasets = Array.isArray(item.missing_datasets) ? item.missing_datasets : [];
+
+          return (
+            <article key={item.key} className="metric-card space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                    {item.label}
+                  </p>
+                  <h3 className="mt-2 text-lg font-semibold text-foreground">
+                    {formatReadinessStatus(item.status)}
+                  </h3>
+                </div>
+                <span
+                  className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.22em] ${getStatusClasses(
+                    item.status
+                  )}`}
+                >
+                  {item.status}
+                </span>
               </div>
-              <span
-                className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.22em] ${getStatusClasses(
-                  item.status
-                )}`}
-              >
-                {item.status}
-              </span>
-            </div>
-            <p className="text-sm text-muted-foreground">{item.description}</p>
-            <p className="text-xs text-muted-foreground">
-              {item.missing_datasets.length > 0
-                ? `Faltando: ${item.missing_datasets.join(", ")}`
-                : "Cobertura registrada para este modulo."}
+              <p className="text-sm text-muted-foreground">{item.description}</p>
+              <p className="text-xs text-muted-foreground">
+                {missingDatasets.length > 0
+                  ? `Faltando: ${missingDatasets.join(", ")}`
+                  : "Cobertura registrada para este modulo."}
+              </p>
+            </article>
+          );
+        })}
+        {modules.length === 0 && (
+          <article className="metric-card">
+            <p className="text-sm text-muted-foreground">
+              Sem modulos de prontidao retornados pelo backend no momento.
             </p>
           </article>
-        ))}
+        )}
       </div>
     </section>
   );

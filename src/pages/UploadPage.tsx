@@ -9,10 +9,10 @@ import {
   formatAvailabilityStatus,
   formatCoveragePercent,
   formatValidationStatus,
-  formatReadinessStatus,
   formatTimestamp,
   getDataset,
   getStatusClasses,
+  resolveAIReadinessStatus,
 } from "@/lib/upload-center";
 import { uploadDatasetFile } from "@/lib/api";
 import type { UploadDatasetKey, UploadValidationReport } from "@/types/analytics";
@@ -23,8 +23,6 @@ import { CriticalGapsPanel } from "@/components/CriticalGapsPanel";
 
 type FeedbackMap = Partial<Record<UploadDatasetKey, UploadFeedback | null>>;
 type LoadingMap = Partial<Record<UploadDatasetKey, boolean>>;
-
-const READINESS_ORDER = ["overall", "planning_production", "forecast", "mts_mto", "raw_material", "finance", "executive_ai"] as const;
 
 export default function UploadPage() {
   const {
@@ -49,19 +47,29 @@ export default function UploadPage() {
   const [rawMaterialFile, setRawMaterialFile] = useState<File | null>(null);
   const [financeDocumentsFile, setFinanceDocumentsFile] = useState<File | null>(null);
 
-  const datasetMap = useMemo(
-    () => new Map(uploadCenter?.datasets.map((dataset) => [dataset.id, dataset]) ?? []),
+  const historyItems = useMemo(
+    () => (Array.isArray(uploadCenter?.history) ? uploadCenter.history : []),
     [uploadCenter],
   );
-
+  const compatibilitySummary = uploadCenter?.compatibility_summary;
+  const contractRegistry = uploadCenter?.contract_registry;
+  const aiReadinessStatus = resolveAIReadinessStatus(uploadCenter);
   const availableCount = uploadCenter?.available_dataset_count ?? 0;
   const totalCount = uploadCenter?.total_dataset_count ?? 0;
   const coveragePercent = uploadCenter?.coverage_percent ?? 0;
-  const historyCount = uploadCenter?.history.length ?? 0;
-  const averageCompatibility = uploadCenter?.compatibility_summary.average_compatibility_score ?? 0;
-  const averageConfidence = uploadCenter?.compatibility_summary.average_confidence_score ?? 0;
-  const aiConfidence = uploadCenter?.compatibility_summary.ai_readiness.confidence_score ?? 0;
-  const largestGaps = uploadCenter?.compatibility_summary.largest_gaps ?? [];
+  const historyCount = historyItems.length;
+  const averageCompatibility = compatibilitySummary?.average_compatibility_score ?? 0;
+  const averageConfidence = compatibilitySummary?.average_confidence_score ?? 0;
+  const aiConfidence = compatibilitySummary?.ai_readiness?.confidence_score ?? 0;
+  const largestGaps = compatibilitySummary?.largest_gaps ?? [];
+
+  const productionDataset = getDataset(uploadCenter, "production");
+  const salesOrdersDataset = getDataset(uploadCenter, "sales_orders");
+  const customersDataset = getDataset(uploadCenter, "customers");
+  const forecastInputDataset = getDataset(uploadCenter, "forecast_input");
+  const bomDataset = getDataset(uploadCenter, "bom");
+  const rawMaterialDataset = getDataset(uploadCenter, "raw_material_inventory");
+  const financeDocumentsDataset = getDataset(uploadCenter, "finance_documents");
 
   const toneFromValidation = (validation: UploadValidationReport): UploadFeedback["tone"] => {
     if (validation.availability_status === "ready") {
@@ -307,7 +315,7 @@ export default function UploadPage() {
             Atualizar painel
           </Button>
           <p className="text-xs text-muted-foreground">
-            Ultima leitura central: {formatTimestamp(uploadCenter?.history[0]?.uploaded_at ?? null)}
+            Ultima leitura central: {formatTimestamp(historyItems[0]?.uploaded_at ?? null)}
           </p>
         </div>
       </section>
@@ -333,7 +341,7 @@ export default function UploadPage() {
             </div>
             <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Status IA</p>
-              <p className="mt-2 text-xl font-semibold text-foreground">{formatAvailabilityStatus(uploadCenter?.readiness.executive_ai.status ?? "unavailable")}</p>
+              <p className="mt-2 text-xl font-semibold text-foreground">{formatAvailabilityStatus(aiReadinessStatus)}</p>
             </div>
           </div>
           <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
@@ -361,13 +369,13 @@ export default function UploadPage() {
           </div>
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
             <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Versao do registry</p>
-            <p className="mt-2 text-sm font-medium text-foreground">{uploadCenter?.contract_registry.version ?? "Carregando..."}</p>
+            <p className="mt-2 text-sm font-medium text-foreground">{contractRegistry?.version ?? "Carregando..."}</p>
           </div>
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
             <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Compatibilidade legada</p>
             <p className="mt-2 text-sm text-foreground">
-              {Object.entries(uploadCenter?.contract_registry.aliases ?? {}).length > 0
-                ? Object.entries(uploadCenter?.contract_registry.aliases ?? {})
+              {Object.entries(contractRegistry?.aliases ?? {}).length > 0
+                ? Object.entries(contractRegistry?.aliases ?? {})
                     .map(([legacy, current]) => `${legacy} -> ${current}`)
                     .join(", ")
                 : "Sem aliases legados registrados."}
@@ -405,9 +413,9 @@ export default function UploadPage() {
         </div>
 
         <div className="space-y-4">
-          {getDataset(uploadCenter, "production") ? (
+          {productionDataset ? (
             <UploadDatasetCard
-              dataset={datasetMap.get("production")!}
+              dataset={productionDataset}
               file={productionFile}
               onFileSelect={setProductionFile}
               onUpload={handleProductionUpload}
@@ -417,9 +425,9 @@ export default function UploadPage() {
             />
           ) : null}
 
-          {getDataset(uploadCenter, "sales_orders") ? (
+          {salesOrdersDataset ? (
             <UploadDatasetCard
-              dataset={datasetMap.get("sales_orders")!}
+              dataset={salesOrdersDataset}
               file={salesOrdersFile}
               onFileSelect={setSalesOrdersFile}
               onUpload={handleSalesOrdersUpload}
@@ -429,9 +437,9 @@ export default function UploadPage() {
             />
           ) : null}
 
-          {getDataset(uploadCenter, "customers") ? (
+          {customersDataset ? (
             <UploadDatasetCard
-              dataset={datasetMap.get("customers")!}
+              dataset={customersDataset}
               file={customersFile}
               onFileSelect={setCustomersFile}
               onUpload={handleCustomersUpload}
@@ -453,9 +461,9 @@ export default function UploadPage() {
         </div>
 
         <div className="space-y-4">
-          {getDataset(uploadCenter, "forecast_input") ? (
+          {forecastInputDataset ? (
             <UploadDatasetCard
-              dataset={datasetMap.get("forecast_input")!}
+              dataset={forecastInputDataset}
               file={forecastFile}
               onFileSelect={setForecastFile}
               onUpload={handleForecastUpload}
@@ -465,9 +473,9 @@ export default function UploadPage() {
             />
           ) : null}
 
-          {getDataset(uploadCenter, "bom") ? (
+          {bomDataset ? (
             <UploadDatasetCard
-              dataset={datasetMap.get("bom")!}
+              dataset={bomDataset}
               file={bomFile}
               onFileSelect={setBomFile}
               onUpload={handleBomUpload}
@@ -477,9 +485,9 @@ export default function UploadPage() {
             />
           ) : null}
 
-          {getDataset(uploadCenter, "raw_material_inventory") ? (
+          {rawMaterialDataset ? (
             <UploadDatasetCard
-              dataset={datasetMap.get("raw_material_inventory")!}
+              dataset={rawMaterialDataset}
               file={rawMaterialFile}
               onFileSelect={setRawMaterialFile}
               onUpload={handleRawMaterialUpload}
@@ -501,9 +509,9 @@ export default function UploadPage() {
         </div>
 
         <div className="space-y-4">
-          {getDataset(uploadCenter, "finance_documents") ? (
+          {financeDocumentsDataset ? (
             <UploadDatasetCard
-              dataset={datasetMap.get("finance_documents")!}
+              dataset={financeDocumentsDataset}
               file={financeDocumentsFile}
               onFileSelect={setFinanceDocumentsFile}
               onUpload={handleFinanceDocumentsUpload}
@@ -539,8 +547,8 @@ export default function UploadPage() {
               </tr>
             </thead>
             <tbody>
-              {(uploadCenter?.history.length ?? 0) > 0 ? (
-                uploadCenter?.history.map((item, index) => (
+              {historyItems.length > 0 ? (
+                historyItems.map((item, index) => (
                   <tr key={`${item.dataset_id}-${item.uploaded_at}-${index}`}>
                     <td className="text-xs font-medium text-foreground">{item.dataset_name}</td>
                     <td className="text-xs text-muted-foreground">{item.filename}</td>

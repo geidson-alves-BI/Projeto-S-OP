@@ -3,11 +3,34 @@ import type {
   UploadCenterStatus,
   UploadDataset,
   UploadDatasetKey,
+  UploadReadinessItem,
+  UploadReadinessKey,
   UploadReadinessStatus,
   UploadValidationStatus,
 } from "@/types/analytics";
 
 type GenericRow = Record<string, unknown>;
+type ReadinessStatusLike = UploadReadinessStatus | "available" | string;
+
+const DATASET_KEYS: UploadDatasetKey[] = [
+  "production",
+  "sales_orders",
+  "customers",
+  "forecast_input",
+  "bom",
+  "raw_material_inventory",
+  "finance_documents",
+];
+
+const READINESS_LABEL_FALLBACK: Record<UploadReadinessKey, string> = {
+  overall: "Prontidao geral",
+  planning_production: "Planejamento e Producao",
+  forecast: "Forecast",
+  mts_mto: "Politica MTS/MTO",
+  raw_material: "Materia-prima",
+  finance: "Financeiro",
+  executive_ai: "IA Executiva",
+};
 
 function normalizeHeader(value: string) {
   return value
@@ -90,17 +113,29 @@ export function formatValidationStatus(status: UploadValidationStatus) {
   return "Sem upload";
 }
 
-export function formatReadinessStatus(status: UploadReadinessStatus) {
-  if (status === "ready") {
+export function normalizeReadinessStatus(status: unknown): UploadReadinessStatus {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  if (normalized === "ready" || normalized === "available") {
+    return "ready";
+  }
+  if (normalized === "partial") {
+    return "partial";
+  }
+  return "unavailable";
+}
+
+export function formatReadinessStatus(status: ReadinessStatusLike) {
+  const normalized = normalizeReadinessStatus(status);
+  if (normalized === "ready") {
     return "Pronta";
   }
-  if (status === "partial") {
+  if (normalized === "partial") {
     return "Parcial";
   }
   return "Indisponivel";
 }
 
-export function formatAvailabilityStatus(status: UploadReadinessStatus) {
+export function formatAvailabilityStatus(status: ReadinessStatusLike) {
   return formatReadinessStatus(status);
 }
 
@@ -109,11 +144,13 @@ export function formatCoveragePercent(value: number) {
   return `${Math.round(safe)}%`;
 }
 
-export function getStatusClasses(status: UploadValidationStatus | UploadReadinessStatus) {
-  if (status === "valid" || status === "ready") {
+export function getStatusClasses(status: UploadValidationStatus | ReadinessStatusLike) {
+  const normalizedReadiness = normalizeReadinessStatus(status);
+
+  if (status === "valid" || normalizedReadiness === "ready") {
     return "border-success/30 bg-success/10 text-foreground";
   }
-  if (status === "partial" || status === "pending") {
+  if (status === "partial" || status === "pending" || normalizedReadiness === "partial") {
     return "border-warning/30 bg-warning/10 text-foreground";
   }
   if (status === "invalid") {
@@ -123,7 +160,110 @@ export function getStatusClasses(status: UploadValidationStatus | UploadReadines
 }
 
 export function getDataset(uploadCenter: UploadCenterStatus | null, datasetId: UploadDatasetKey) {
-  return uploadCenter?.datasets.find((dataset) => dataset.id === datasetId) ?? null;
+  if (!Array.isArray(uploadCenter?.datasets)) {
+    return null;
+  }
+  return uploadCenter.datasets.find((dataset) => dataset.id === datasetId) ?? null;
+}
+
+function toStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+}
+
+function toDatasetKeyArray(value: unknown): UploadDatasetKey[] {
+  const allowed = new Set<string>(DATASET_KEYS);
+  return toStringArray(value).filter((item): item is UploadDatasetKey => allowed.has(item));
+}
+
+function normalizeReadinessModule(raw: unknown, fallbackKey: UploadReadinessKey): UploadReadinessItem {
+  const node = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const keyRaw = String(node.key ?? fallbackKey).trim();
+  const key = (keyRaw || fallbackKey) as UploadReadinessKey;
+  const label = String(node.label ?? READINESS_LABEL_FALLBACK[key] ?? READINESS_LABEL_FALLBACK[fallbackKey]).trim();
+  const status = normalizeReadinessStatus(node.status);
+  const missingDatasets = toStringArray(node.missing_datasets);
+  const datasets = toDatasetKeyArray(node.datasets);
+  const summaryRaw = String(node.summary ?? node.description ?? "").trim();
+  const summary =
+    summaryRaw || (missingDatasets.length > 0 ? `Faltando: ${missingDatasets.join(", ")}` : "Cobertura registrada.");
+
+  return {
+    key,
+    label,
+    status,
+    summary,
+    datasets,
+    missing_datasets: missingDatasets,
+  };
+}
+
+export function resolveReadinessModule(
+  uploadCenter: UploadCenterStatus | null,
+  moduleKey: UploadReadinessKey,
+): UploadReadinessItem | null {
+  const readinessNode =
+    uploadCenter && typeof uploadCenter === "object"
+      ? (uploadCenter as unknown as Record<string, unknown>).readiness
+      : null;
+
+  if (!readinessNode || typeof readinessNode !== "object") {
+    return null;
+  }
+
+  const readinessRecord = readinessNode as Record<string, unknown>;
+  const moduleFromRecord = readinessRecord[moduleKey];
+  if (moduleFromRecord && typeof moduleFromRecord === "object") {
+    return normalizeReadinessModule(moduleFromRecord, moduleKey);
+  }
+
+  const modules = Array.isArray(readinessRecord.modules) ? readinessRecord.modules : [];
+  const moduleFromArray = modules.find((item) => {
+    if (!item || typeof item !== "object") {
+      return false;
+    }
+    return String((item as Record<string, unknown>).key ?? "").trim() === moduleKey;
+  });
+
+  if (!moduleFromArray) {
+    return null;
+  }
+
+  return normalizeReadinessModule(moduleFromArray, moduleKey);
+}
+
+export function resolveAIReadinessStatus(uploadCenter: UploadCenterStatus | null): UploadReadinessStatus {
+  const moduleStatus = resolveReadinessModule(uploadCenter, "executive_ai");
+  if (moduleStatus) {
+    return moduleStatus.status;
+  }
+
+  const aiReadinessNode =
+    uploadCenter && typeof uploadCenter === "object"
+      ? (uploadCenter as unknown as Record<string, unknown>).compatibility_summary
+      : null;
+  const aiReadiness =
+    aiReadinessNode && typeof aiReadinessNode === "object"
+      ? (aiReadinessNode as Record<string, unknown>).ai_readiness
+      : null;
+
+  if (aiReadiness && typeof aiReadiness === "object") {
+    const coverage = Number((aiReadiness as Record<string, unknown>).coverage_percent ?? 0);
+    if (Number.isFinite(coverage)) {
+      if (coverage >= 100) {
+        return "ready";
+      }
+      if (coverage > 0) {
+        return "partial";
+      }
+    }
+  }
+
+  return "unavailable";
 }
 
 export function getFileFormat(file: File) {

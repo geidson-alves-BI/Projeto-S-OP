@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { formatReadinessStatus, getStatusClasses, resolveReadinessModule } from "@/lib/upload-center";
 import type { UploadCenterStatus, UploadDatasetKey, UploadReadinessKey } from "@/types/analytics";
 
 type AnalysisStatusPanelProps = {
@@ -13,16 +14,6 @@ type AnalysisStatusPanelProps = {
   compact?: boolean;
 };
 
-function getStatusLabel(status: "ready" | "partial" | "unavailable") {
-  if (status === "ready") {
-    return "Pronta";
-  }
-  if (status === "partial") {
-    return "Parcial";
-  }
-  return "Indisponivel";
-}
-
 function getStatusIcon(status: "ready" | "partial" | "unavailable") {
   if (status === "ready") {
     return CheckCircle2;
@@ -33,16 +24,6 @@ function getStatusIcon(status: "ready" | "partial" | "unavailable") {
   return XCircle;
 }
 
-function getStatusClasses(status: "ready" | "partial" | "unavailable") {
-  if (status === "ready") {
-    return "border-success/30 bg-success/10 text-foreground";
-  }
-  if (status === "partial") {
-    return "border-warning/30 bg-warning/10 text-foreground";
-  }
-  return "border-border/70 bg-muted/30 text-muted-foreground";
-}
-
 export default function AnalysisStatusPanel({
   uploadCenter,
   moduleKey,
@@ -51,8 +32,9 @@ export default function AnalysisStatusPanel({
   datasetIds,
   compact = false,
 }: AnalysisStatusPanelProps) {
-  const moduleStatus = uploadCenter?.readiness[moduleKey];
-  const datasetMap = new Map(uploadCenter?.datasets.map((dataset) => [dataset.id, dataset]) ?? []);
+  const moduleStatus = resolveReadinessModule(uploadCenter, moduleKey);
+  const datasets = Array.isArray(uploadCenter?.datasets) ? uploadCenter.datasets : [];
+  const datasetMap = new Map(datasets.map((dataset) => [dataset.id, dataset]));
   const status = moduleStatus?.status ?? "unavailable";
   const Icon = getStatusIcon(status);
 
@@ -69,7 +51,7 @@ export default function AnalysisStatusPanel({
 
         <span className={cn("inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.22em]", getStatusClasses(status))}>
           <Icon className="h-3.5 w-3.5" />
-          {getStatusLabel(status)}
+          {formatReadinessStatus(status)}
         </span>
       </div>
 

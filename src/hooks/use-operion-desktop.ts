@@ -17,12 +17,21 @@ type OperionDesktopStatus = {
 };
 
 function getDefaultConfig(): OperionConfig {
-  return (
-    window.__OPERION_CONFIG__ ?? {
+  if (window.__OPERION_CONFIG__) {
+    return window.__OPERION_CONFIG__;
+  }
+
+  try {
+    return {
       apiUrl: API_URL,
       backendPort: Number(new URL(API_URL).port || 80),
-    }
-  );
+    };
+  } catch {
+    return {
+      apiUrl: API_URL,
+      backendPort: 8000,
+    };
+  }
 }
 
 export function useOperionDesktopStatus(): OperionDesktopStatus {
@@ -31,7 +40,10 @@ export function useOperionDesktopStatus(): OperionDesktopStatus {
 
   const desktopBridge = typeof window !== "undefined" ? window.desktop : undefined;
   const updaterBridge = typeof window !== "undefined" ? window.__OPERION_UPDATER__ : undefined;
-  const config = typeof window !== "undefined" ? getDefaultConfig() : { apiUrl: API_URL, backendPort: 8000 };
+  const config = useMemo(
+    () => (typeof window !== "undefined" ? getDefaultConfig() : { apiUrl: API_URL, backendPort: 8000 }),
+    [],
+  );
 
   useEffect(() => {
     let active = true;

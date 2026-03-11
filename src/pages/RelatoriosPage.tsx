@@ -17,6 +17,18 @@ function downloadAllSheets(sheets: { name: string; rows: string[][] }[]) {
   });
 }
 
+function resolveStrategyLabel(strategyFinal: unknown, strategyBase: unknown) {
+  if (typeof strategyFinal === "string") {
+    return strategyFinal;
+  }
+
+  if (typeof strategyBase === "string") {
+    return strategyBase;
+  }
+
+  return "";
+}
+
 export default function RelatoriosPage() {
   const { state, rmData } = useAppData();
   const navigate = useNavigate();
@@ -31,20 +43,25 @@ export default function RelatoriosPage() {
     }
   }, [state, rmData, navigate]);
 
+  const products = useMemo(() => (Array.isArray(state?.products) ? state.products : []), [state]);
+  const monthCols = useMemo(() => (Array.isArray(state?.monthCols) ? state.monthCols : []), [state]);
+  const hasClientes = Boolean(state?.hasClientes);
   const rmSummary = useMemo(() => (rmData ? getRMSummary(rmData, 95) : null), [rmData]);
 
   const summaryData = useMemo(() => {
-    if (!state) return null;
-    const countA = state.products.filter((product) => product.classeABC === "A").length;
-    const countMTS = state.products.filter((product) => (product.estrategiaFinal ?? product.estrategiaBase).includes("MTS")).length;
-    const countMTO = state.products.length - countMTS;
-    const volTotal = state.products.reduce((sum, product) => sum + product.volumeAnual, 0);
-    const targetTotal = state.products.reduce(
+    if (!state || products.length === 0) return null;
+    const countA = products.filter((product) => product.classeABC === "A").length;
+    const countMTS = products.filter((product) =>
+      resolveStrategyLabel(product.estrategiaFinal, product.estrategiaBase).includes("MTS"),
+    ).length;
+    const countMTO = products.length - countMTS;
+    const volTotal = products.reduce((sum, product) => sum + product.volumeAnual, 0);
+    const targetTotal = products.reduce(
       (sum, product) => sum + (product.targetKgAjustado ?? product.consumoDiario * product.diasAlvoBase),
       0,
     );
     return { countA, countMTS, countMTO, volTotal, targetTotal };
-  }, [state]);
+  }, [state, products]);
 
   const reportBlocks = useMemo(() => {
     const isAvailable = (label: string) => viewModel.componentsAvailable.some((component) => component.label === label);
@@ -88,7 +105,7 @@ export default function RelatoriosPage() {
   const handleExportPack = () => {
     const sheets: { name: string; rows: string[][] }[] = [];
 
-    if (state && summaryData) {
+    if (summaryData) {
       sheets.push({
         name: "resumo_executivo",
         rows: [
@@ -96,8 +113,8 @@ export default function RelatoriosPage() {
           ["Gerado em", new Date().toISOString().split("T")[0]],
           [],
           ["Metrica", "Valor"],
-          ["Total SKUs", String(state.products.length)],
-          ["Meses analisados", String(state.monthCols.length)],
+          ["Total SKUs", String(products.length)],
+          ["Meses analisados", String(monthCols.length)],
           ["Vol. Total (kg)", String(Math.round(summaryData.volTotal))],
           ["SKUs Classe A", String(summaryData.countA)],
           ["Candidatos MTS", String(summaryData.countMTS)],
@@ -105,7 +122,7 @@ export default function RelatoriosPage() {
           ["Target Estoque Total (kg)", String(Math.round(summaryData.targetTotal))],
           ["Cobertura do contexto (%)", String(viewModel.coveragePercent)],
           ["Blocos disponiveis", `${viewModel.availableComponentsCount}/${viewModel.totalComponentsCount}`],
-          ...(state.portfolioConc
+          ...(state?.portfolioConc
             ? [
                 ["HHI Portfolio", state.portfolioConc.hhiPortfolio.toFixed(3)],
                 ["Top1 Share Portfolio", `${(state.portfolioConc.top1SharePortfolio * 100).toFixed(1)}%`],
@@ -141,9 +158,9 @@ export default function RelatoriosPage() {
         "Dias Alvo",
         "Target Estoque (kg)",
         "Prioridade MTS",
-        ...(state.hasClientes ? ["Top1 Cliente", "Top1 Share (%)", "HHI"] : []),
+        ...(hasClientes ? ["Top1 Cliente", "Top1 Share (%)", "HHI"] : []),
       ];
-      const rows = state.products.map((product) => [
+      const rows = products.map((product) => [
         product.SKU_LABEL,
         product.codigoProduto,
         product.denominacao,
@@ -155,11 +172,11 @@ export default function RelatoriosPage() {
         product.cv.toFixed(2),
         product.trendLabel,
         product.trendPct != null ? product.trendPct.toFixed(1) : "",
-        product.estrategiaFinal ?? product.estrategiaBase,
+        resolveStrategyLabel(product.estrategiaFinal, product.estrategiaBase),
         String(product.diasAlvoAjustado ?? product.diasAlvoBase),
         String(Math.round(product.targetKgAjustado ?? product.consumoDiario * product.diasAlvoBase)),
         String(product.prioridadeMTS),
-        ...(state.hasClientes
+        ...(hasClientes
           ? [
               product.top1Cliente ?? "",
               product.top1ShareProduto != null ? (product.top1ShareProduto * 100).toFixed(1) : "",
@@ -171,12 +188,12 @@ export default function RelatoriosPage() {
     }
 
     if (state) {
-      const header = ["SKU", "Codigo", "ABC", ...state.monthCols, "Total"];
-      const rows = state.products.map((product) => [
+      const header = ["SKU", "Codigo", "ABC", ...monthCols, "Total"];
+      const rows = products.map((product) => [
         product.SKU_LABEL,
         product.codigoProduto,
         product.classeABC,
-        ...state.monthCols.map((month) => String(Math.round(product.monthValues[month] || 0))),
+        ...monthCols.map((month) => String(Math.round(product.monthValues?.[month] || 0))),
         String(Math.round(product.volumeAnual)),
       ]);
       sheets.push({ name: "historico_mensal", rows: [header, ...rows] });

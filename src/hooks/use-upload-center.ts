@@ -17,7 +17,7 @@ export function useUploadCenter(autoLoad = true) {
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : String(requestError);
       setError(message);
-      throw requestError;
+      return null;
     } finally {
       setLoading(false);
     }

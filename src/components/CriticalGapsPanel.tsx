@@ -3,6 +3,7 @@ import { useExecutiveContext } from "@/hooks/use-executive-context";
 
 export function CriticalGapsPanel() {
   const { executiveContext, loading, error } = useExecutiveContext();
+  const keyGaps = Array.isArray(executiveContext?.key_gaps) ? executiveContext.key_gaps : [];
 
   if (loading) {
     return (
@@ -22,28 +23,28 @@ export function CriticalGapsPanel() {
 
   return (
     <section className="space-y-4">
-        <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-primary" />
-            <div>
-                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Lacunas Críticas</p>
-                <h2 className="text-xl font-semibold text-foreground">Painel de Lacunas Críticas</h2>
-            </div>
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 text-primary" />
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Lacunas Criticas</p>
+          <h2 className="text-xl font-semibold text-foreground">Painel de Lacunas Criticas</h2>
         </div>
-        <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
+      </div>
+      <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
         <div className="mt-3 flex flex-wrap gap-2">
-            {executiveContext?.key_gaps && executiveContext.key_gaps.length > 0 ? (
-            executiveContext.key_gaps.map((gap) => (
-                <span key={gap} className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs text-foreground">
+          {keyGaps.length > 0 ? (
+            keyGaps.map((gap) => (
+              <span key={gap} className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs text-foreground">
                 {gap}
-                </span>
+              </span>
             ))
-            ) : (
+          ) : (
             <span className="rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs text-foreground">
-                Sem lacunas abertas na ultima rodada.
+              Sem lacunas abertas na ultima rodada.
             </span>
-            )}
+          )}
         </div>
-        </div>
+      </div>
     </section>
   );
 }
