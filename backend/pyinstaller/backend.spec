@@ -7,6 +7,7 @@ from PyInstaller.utils.hooks import collect_submodules
 block_cipher = None
 project_root = os.path.abspath(os.getcwd())
 entry_script = os.path.join(project_root, "backend", "run_prod.py")
+custom_hook_dir = os.path.join(project_root, "backend", "pyinstaller", "hooks")
 
 hiddenimports = (
     collect_submodules("uvicorn")
@@ -21,7 +22,7 @@ a = Analysis(
     binaries=[],
     datas=[],
     hiddenimports=hiddenimports,
-    hookspath=[],
+    hookspath=[custom_hook_dir],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
