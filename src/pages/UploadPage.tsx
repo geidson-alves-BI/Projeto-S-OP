@@ -1,7 +1,19 @@
-import { useMemo, useState } from "react";
-import { Activity, Database, FileText, RefreshCcw, ShieldCheck } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  BarChart3,
+  Clock3,
+  Database,
+  FileText,
+  RefreshCcw,
+  ShieldCheck,
+} from "lucide-react";
 import PageTransition from "@/components/PageTransition";
 import UploadDatasetCard, { type UploadFeedback } from "@/components/UploadDatasetCard";
+import { ExecutiveReadinessPanel } from "@/components/ExecutiveReadinessPanel";
+import { AnalyticCoveragePanel } from "@/components/AnalyticCoveragePanel";
+import { CriticalGapsPanel } from "@/components/CriticalGapsPanel";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useUploadCenter } from "@/hooks/use-upload-center";
@@ -15,19 +27,65 @@ import {
   resolveAIReadinessStatus,
 } from "@/lib/upload-center";
 import { uploadDatasetFile } from "@/lib/api";
-import type { UploadDatasetKey, UploadValidationReport } from "@/types/analytics";
-import { ExecutiveReadinessPanel } from "@/components/ExecutiveReadinessPanel";
-import { AnalyticCoveragePanel } from "@/components/AnalyticCoveragePanel";
-import { CriticalGapsPanel } from "@/components/CriticalGapsPanel";
-
+import type {
+  UploadCompatibilityStatus,
+  UploadDataset,
+  UploadDatasetKey,
+  UploadValidationReport,
+} from "@/types/analytics";
 
 type FeedbackMap = Partial<Record<UploadDatasetKey, UploadFeedback | null>>;
 type LoadingMap = Partial<Record<UploadDatasetKey, boolean>>;
 
+type UploadCardDefinition = {
+  key: UploadDatasetKey;
+  dataset: UploadDataset | null;
+  file: File | null;
+  onFileSelect: (file: File) => void;
+  onUpload: () => Promise<void>;
+  loading: boolean;
+  feedback?: UploadFeedback | null;
+  actionLabel: string;
+  description?: string;
+};
+
+const PRIMARY_UPLOAD_KEYS: UploadDatasetKey[] = [
+  "production",
+  "sales_orders",
+  "customers",
+  "bom",
+  "raw_material_inventory",
+  "finance_documents",
+];
+
+function formatCompatibilityStatus(status: UploadCompatibilityStatus) {
+  if (status === "compatible") {
+    return "Compativel";
+  }
+  if (status === "partial") {
+    return "Parcial";
+  }
+  return "Incompativel";
+}
+
+function getCompatibilityClasses(status: UploadCompatibilityStatus) {
+  if (status === "compatible") {
+    return "border-success/30 bg-success/10 text-foreground";
+  }
+  if (status === "partial") {
+    return "border-warning/30 bg-warning/10 text-foreground";
+  }
+  return "border-destructive/30 bg-destructive/10 text-destructive";
+}
+
+function flattenAliases(aliases: Record<string, string[]>) {
+  return Object.entries(aliases).flatMap(([canonical, acceptedAliases]) =>
+    acceptedAliases.map((alias) => `${alias} -> ${canonical}`),
+  );
+}
+
 export default function UploadPage() {
   const {
-    state,
-    rmData,
     loading: contextLoading,
     error: contextError,
     loadProductionFile,
@@ -38,6 +96,7 @@ export default function UploadPage() {
 
   const [datasetLoading, setDatasetLoading] = useState<LoadingMap>({});
   const [feedback, setFeedback] = useState<FeedbackMap>({});
+  const [openDictionaryId, setOpenDictionaryId] = useState<string | undefined>(undefined);
 
   const [productionFile, setProductionFile] = useState<File | null>(null);
   const [salesOrdersFile, setSalesOrdersFile] = useState<File | null>(null);
@@ -46,6 +105,8 @@ export default function UploadPage() {
   const [bomFile, setBomFile] = useState<File | null>(null);
   const [rawMaterialFile, setRawMaterialFile] = useState<File | null>(null);
   const [financeDocumentsFile, setFinanceDocumentsFile] = useState<File | null>(null);
+
+  const dictionarySectionRef = useRef<HTMLElement | null>(null);
 
   const historyItems = useMemo(
     () => (Array.isArray(uploadCenter?.history) ? uploadCenter.history : []),
@@ -267,8 +328,95 @@ export default function UploadPage() {
     });
   };
 
+  const uploadCards: UploadCardDefinition[] = [
+    {
+      key: "production",
+      dataset: productionDataset,
+      file: productionFile,
+      onFileSelect: setProductionFile,
+      onUpload: handleProductionUpload,
+      loading: Boolean(datasetLoading.production),
+      feedback: feedback.production,
+      actionLabel: "Atualizar producao",
+    },
+    {
+      key: "sales_orders",
+      dataset: salesOrdersDataset,
+      file: salesOrdersFile,
+      onFileSelect: setSalesOrdersFile,
+      onUpload: handleSalesOrdersUpload,
+      loading: Boolean(datasetLoading.sales_orders),
+      feedback: feedback.sales_orders,
+      actionLabel: "Atualizar vendas",
+    },
+    {
+      key: "customers",
+      dataset: customersDataset,
+      file: customersFile,
+      onFileSelect: setCustomersFile,
+      onUpload: handleCustomersUpload,
+      loading: Boolean(datasetLoading.customers),
+      feedback: feedback.customers,
+      actionLabel: "Atualizar clientes",
+    },
+    {
+      key: "bom",
+      dataset: bomDataset,
+      file: bomFile,
+      onFileSelect: setBomFile,
+      onUpload: handleBomUpload,
+      loading: Boolean(datasetLoading.bom),
+      feedback: feedback.bom,
+      actionLabel: "Atualizar estrutura",
+    },
+    {
+      key: "raw_material_inventory",
+      dataset: rawMaterialDataset,
+      file: rawMaterialFile,
+      onFileSelect: setRawMaterialFile,
+      onUpload: handleRawMaterialUpload,
+      loading: Boolean(datasetLoading.raw_material_inventory),
+      feedback: feedback.raw_material_inventory,
+      actionLabel: "Atualizar estoque MP",
+    },
+    {
+      key: "finance_documents",
+      dataset: financeDocumentsDataset,
+      file: financeDocumentsFile,
+      onFileSelect: setFinanceDocumentsFile,
+      onUpload: handleFinanceDocumentsUpload,
+      loading: Boolean(datasetLoading.finance_documents),
+      feedback: feedback.finance_documents,
+      actionLabel: "Anexar documentos",
+      description:
+        "Formatos aceitos: .pdf, .xlsx, .xls, .csv, .png, .jpg, .jpeg, .webp, .txt, .docx",
+    },
+    {
+      key: "forecast_input",
+      dataset: forecastInputDataset,
+      file: forecastFile,
+      onFileSelect: setForecastFile,
+      onUpload: handleForecastUpload,
+      loading: Boolean(datasetLoading.forecast_input),
+      feedback: feedback.forecast_input,
+      actionLabel: "Atualizar forecast",
+    },
+  ];
+
+  const visibleUploadCards = uploadCards.filter(
+    (card): card is UploadCardDefinition & { dataset: UploadDataset } => card.dataset !== null,
+  );
+  const primaryUploadCards = visibleUploadCards.filter((card) => PRIMARY_UPLOAD_KEYS.includes(card.key));
+  const secondaryUploadCards = visibleUploadCards.filter((card) => !PRIMARY_UPLOAD_KEYS.includes(card.key));
+  const dictionaryCards = visibleUploadCards;
+
+  const openDictionaryFor = (datasetId: UploadDatasetKey) => {
+    setOpenDictionaryId(datasetId);
+    dictionarySectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
-    <PageTransition className="p-6 space-y-6">
+    <PageTransition className="space-y-6 p-6">
       <section className="relative overflow-hidden rounded-[30px] border border-border/70 bg-card/90 px-6 py-7 shadow-[0_24px_80px_rgba(2,6,23,0.35)]">
         <div
           className="pointer-events-none absolute inset-0 opacity-90"
@@ -281,29 +429,40 @@ export default function UploadPage() {
         <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div className="space-y-4">
             <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-primary">
-              Visão Executiva
+              Visao Executiva
             </span>
             <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">Central de Prontidão Executiva</h1>
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+                Central de Prontidao Executiva
+              </h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                Visão integrada da cobertura de dados, prontidão dos módulos analíticos e lacunas críticas para a tomada de decisão.
+                Visao integrada da cobertura de dados, prontidao dos modulos analiticos e lacunas
+                criticas para a tomada de decisao.
               </p>
             </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Bases disponiveis</p>
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                Bases disponiveis
+              </p>
               <p className="mt-2 text-2xl font-semibold text-foreground">
                 {availableCount}/{totalCount}
               </p>
             </div>
             <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Cobertura analitica</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{formatCoveragePercent(coveragePercent)}</p>
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                Cobertura analitica
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">
+                {formatCoveragePercent(coveragePercent)}
+              </p>
             </div>
             <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Confianca analitica</p>
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                Confianca analitica
+              </p>
               <p className="mt-2 text-2xl font-semibold text-foreground">{averageConfidence}%</p>
             </div>
           </div>
@@ -321,75 +480,6 @@ export default function UploadPage() {
       </section>
 
       <ExecutiveReadinessPanel />
-      <AnalyticCoveragePanel />
-      <CriticalGapsPanel />
-
-      <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <article className="metric-card space-y-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Governanca contratual</p>
-            <h2 className="text-xl font-semibold text-foreground">Compatibilidade, lacunas e confianca</h2>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Score medio</p>
-              <p className="mt-2 text-xl font-semibold text-foreground">{averageCompatibility}%</p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Confianca media</p>
-              <p className="mt-2 text-xl font-semibold text-foreground">{averageConfidence}%</p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Status IA</p>
-              <p className="mt-2 text-xl font-semibold text-foreground">{formatAvailabilityStatus(aiReadinessStatus)}</p>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Maiores lacunas atuais</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {largestGaps.length > 0 ? (
-                largestGaps.map((gap) => (
-                  <span key={gap} className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs text-foreground">
-                    {gap}
-                  </span>
-                ))
-              ) : (
-                <span className="rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs text-foreground">
-                  Sem lacunas abertas na ultima rodada.
-                </span>
-              )}
-            </div>
-          </div>
-        </article>
-
-        <article className="metric-card space-y-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Registry oficial</p>
-            <h2 className="text-xl font-semibold text-foreground">Contrato unificado por dataset</h2>
-          </div>
-          <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Versao do registry</p>
-            <p className="mt-2 text-sm font-medium text-foreground">{contractRegistry?.version ?? "Carregando..."}</p>
-          </div>
-          <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Compatibilidade legada</p>
-            <p className="mt-2 text-sm text-foreground">
-              {Object.entries(contractRegistry?.aliases ?? {}).length > 0
-                ? Object.entries(contractRegistry?.aliases ?? {})
-                    .map(([legacy, current]) => `${legacy} -> ${current}`)
-                    .join(", ")
-                : "Sem aliases legados registrados."}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Leitura executiva</p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Cada upload agora registra contrato oficial, colunas reconhecidas, aliases aceitos, impacto analitico,
-              lacunas de qualidade e nivel de confianca para a futura camada de IA.
-            </p>
-          </div>
-        </article>
-      </section>
 
       {(error || contextError) && (
         <section className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -403,178 +493,489 @@ export default function UploadPage() {
         </section>
       )}
 
-      <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Database className="h-4 w-4 text-primary" />
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Operacoes e demanda</p>
-            <h2 className="text-xl font-semibold text-foreground">Bases estruturadas do ciclo operacional</h2>
+      <section className="metric-card space-y-3 border-primary/20 bg-card/95">
+        <div className="flex flex-wrap items-end justify-between gap-2.5">
+          <div className="flex items-center gap-2">
+            <Database className="h-4 w-4 text-primary/90" />
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+                Central unica de upload
+              </p>
+              <h2 className="text-lg font-semibold text-foreground">
+                Faixa principal para envio das bases
+              </h2>
+            </div>
           </div>
+          <p className="text-[11px] text-muted-foreground/90">
+            Upload primeiro, dicionario como apoio contratual.
+          </p>
         </div>
 
-        <div className="space-y-4">
-          {productionDataset ? (
+        <div className="flex snap-x snap-mandatory items-stretch gap-2.5 overflow-x-auto pb-2 pr-1 sm:gap-3">
+          {primaryUploadCards.map((card) => (
             <UploadDatasetCard
-              dataset={productionDataset}
-              file={productionFile}
-              onFileSelect={setProductionFile}
-              onUpload={handleProductionUpload}
-              loading={Boolean(datasetLoading.production)}
-              feedback={feedback.production}
-              actionLabel="Atualizar producao"
+              key={card.key}
+              dataset={card.dataset}
+              file={card.file}
+              onFileSelect={card.onFileSelect}
+              onUpload={card.onUpload}
+              loading={card.loading}
+              feedback={card.feedback}
+              actionLabel={card.actionLabel}
+              description={card.description}
+              onOpenDictionary={() => openDictionaryFor(card.key)}
             />
-          ) : null}
-
-          {salesOrdersDataset ? (
-            <UploadDatasetCard
-              dataset={salesOrdersDataset}
-              file={salesOrdersFile}
-              onFileSelect={setSalesOrdersFile}
-              onUpload={handleSalesOrdersUpload}
-              loading={Boolean(datasetLoading.sales_orders)}
-              feedback={feedback.sales_orders}
-              actionLabel="Registrar vendas / pedidos"
-            />
-          ) : null}
-
-          {customersDataset ? (
-            <UploadDatasetCard
-              dataset={customersDataset}
-              file={customersFile}
-              onFileSelect={setCustomersFile}
-              onUpload={handleCustomersUpload}
-              loading={Boolean(datasetLoading.customers)}
-              feedback={feedback.customers}
-              actionLabel="Atualizar clientes"
-            />
-          ) : null}
+          ))}
         </div>
+        {secondaryUploadCards.length > 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            Base complementar fora da faixa principal:{" "}
+            {secondaryUploadCards.map((card) => card.dataset.name).join(", ")}.
+          </p>
+        ) : null}
       </section>
 
-      <section className="space-y-4">
+      <section ref={dictionarySectionRef} className="metric-card space-y-3 border-border/70 bg-card/92">
         <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-primary" />
+          <FileText className="h-4 w-4 text-primary/90" />
           <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Planejamento e supply</p>
-            <h2 className="text-xl font-semibold text-foreground">Bases para previsao, politica e insumos</h2>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+              Dicionario por base
+            </p>
+            <h2 className="text-lg font-semibold text-foreground">Contrato e compatibilidade por dataset</h2>
           </div>
         </div>
 
-        <div className="space-y-4">
-          {forecastInputDataset ? (
-            <UploadDatasetCard
-              dataset={forecastInputDataset}
-              file={forecastFile}
-              onFileSelect={setForecastFile}
-              onUpload={handleForecastUpload}
-              loading={Boolean(datasetLoading.forecast_input)}
-              feedback={feedback.forecast_input}
-              actionLabel="Consolidar forecast"
-            />
-          ) : null}
+        <Accordion
+          type="single"
+          collapsible
+          value={openDictionaryId}
+          onValueChange={(value) => setOpenDictionaryId(value || undefined)}
+          className="space-y-2.5"
+        >
+          {dictionaryCards.map((card) => {
+            const dataset = card.dataset;
+            const aliasList = flattenAliases(dataset.column_aliases);
+            const aliasEntries = Object.entries(dataset.column_aliases).filter(
+              ([, acceptedAliases]) => acceptedAliases.length > 0,
+            );
+            const lastValidation = dataset.last_validation;
 
-          {bomDataset ? (
-            <UploadDatasetCard
-              dataset={bomDataset}
-              file={bomFile}
-              onFileSelect={setBomFile}
-              onUpload={handleBomUpload}
-              loading={Boolean(datasetLoading.bom)}
-              feedback={feedback.bom}
-              actionLabel="Atualizar estrutura de produto"
-            />
-          ) : null}
-
-          {rawMaterialDataset ? (
-            <UploadDatasetCard
-              dataset={rawMaterialDataset}
-              file={rawMaterialFile}
-              onFileSelect={setRawMaterialFile}
-              onUpload={handleRawMaterialUpload}
-              loading={Boolean(datasetLoading.raw_material_inventory)}
-              feedback={feedback.raw_material_inventory}
-              actionLabel="Atualizar estoque de materia-prima"
-            />
-          ) : null}
-        </div>
-      </section>
-
-      <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-primary" />
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Financeiro e governanca</p>
-            <h2 className="text-xl font-semibold text-foreground">Planilhas e documentos para leitura executiva</h2>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {financeDocumentsDataset ? (
-            <UploadDatasetCard
-              dataset={financeDocumentsDataset}
-              file={financeDocumentsFile}
-              onFileSelect={setFinanceDocumentsFile}
-              onUpload={handleFinanceDocumentsUpload}
-              loading={Boolean(datasetLoading.finance_documents)}
-              feedback={feedback.finance_documents}
-              actionLabel="Anexar documento financeiro"
-              description="Formatos aceitos: .pdf, .xlsx, .xls, .csv, .png, .jpg, .jpeg, .webp, .txt, .docx"
-            />
-          ) : null}
-        </div>
-      </section>
-
-      <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Database className="h-4 w-4 text-primary" />
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Historico e governanca</p>
-            <h2 className="text-xl font-semibold text-foreground">Manifesto central de uploads</h2>
-          </div>
-        </div>
-
-        <div className="metric-card overflow-x-auto">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Base</th>
-                <th>Arquivo</th>
-                <th>Data / hora</th>
-                <th>Formato</th>
-                <th>Status</th>
-                <th>Score</th>
-                <th>Impacto nas analises</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historyItems.length > 0 ? (
-                historyItems.map((item, index) => (
-                  <tr key={`${item.dataset_id}-${item.uploaded_at}-${index}`}>
-                    <td className="text-xs font-medium text-foreground">{item.dataset_name}</td>
-                    <td className="text-xs text-muted-foreground">{item.filename}</td>
-                    <td className="text-xs text-muted-foreground">{formatTimestamp(item.uploaded_at)}</td>
-                    <td className="text-xs text-muted-foreground">{item.format}</td>
-                    <td>
-                      <span className={`rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.2em] ${getStatusClasses(item.validation_status)}`}>
-                        {formatValidationStatus(item.validation_status)}
+            return (
+              <AccordionItem
+                key={dataset.id}
+                value={dataset.id}
+                className="rounded-2xl border border-border/60 bg-background/35 px-4"
+              >
+                <AccordionTrigger className="py-3.5 text-left hover:no-underline">
+                  <div className="flex w-full flex-wrap items-center justify-between gap-3 pr-3">
+                    <div className="space-y-1">
+                      <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                        {dataset.category}
+                      </p>
+                      <p className="text-sm font-semibold text-foreground">{dataset.name}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] ${getStatusClasses(
+                          dataset.validation_status,
+                        )}`}
+                      >
+                        {dataset.last_upload_status}
                       </span>
-                    </td>
-                    <td className="text-xs text-muted-foreground">
-                      {item.compatibility_score}%{item.missing_required_columns.length > 0 ? ` | Faltando: ${item.missing_required_columns.join(", ")}` : ""}
-                    </td>
-                    <td className="text-xs text-muted-foreground">{item.readiness_impact.join(", ")}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
-                    Nenhum upload registrado na governanca central ate o momento.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                      <span className="rounded-full border border-border/70 bg-background/70 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-foreground">
+                        Score {dataset.compatibility_summary.compatibility_score}%
+                      </span>
+                    </div>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pt-0.5">
+                  <div className="grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-border/70 bg-muted/10 px-4 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                          Objetivo da base
+                        </p>
+                        <p className="mt-2 text-sm text-foreground">{dataset.objective}</p>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.22em] text-primary">
+                            Colunas obrigatorias
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {dataset.required_columns.length > 0
+                              ? dataset.required_columns.map((column) => (
+                                  <span
+                                    key={`${dataset.id}-required-${column}`}
+                                    className="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] text-foreground"
+                                  >
+                                    {column}
+                                  </span>
+                                ))
+                              : (
+                                  <span className="rounded-full border border-border/70 bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground">
+                                    Nao se aplica
+                                  </span>
+                                )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-border/70 bg-muted/10 px-4 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                            Colunas opcionais
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {dataset.optional_columns.length > 0
+                              ? dataset.optional_columns.map((column) => (
+                                  <span
+                                    key={`${dataset.id}-optional-${column}`}
+                                    className="rounded-full border border-border/70 bg-background/65 px-2 py-0.5 text-[11px] text-foreground"
+                                  >
+                                    {column}
+                                  </span>
+                                ))
+                              : (
+                                  <span className="rounded-full border border-border/70 bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground">
+                                    Nao se aplica
+                                  </span>
+                                )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-border/70 bg-background/55 px-4 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                          Aliases aceitos
+                        </p>
+                        {aliasEntries.length > 0 ? (
+                          <div className="mt-2 space-y-1.5">
+                            {aliasEntries.map(([canonical, acceptedAliases]) => (
+                              <div
+                                key={`${dataset.id}-alias-${canonical}`}
+                                className="rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1.5"
+                              >
+                                <p className="text-[11px] font-semibold text-foreground">{canonical}</p>
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {acceptedAliases.map((alias) => (
+                                    <span
+                                      key={`${dataset.id}-alias-${canonical}-${alias}`}
+                                      className="rounded-full border border-border/70 bg-background/75 px-2 py-0.5 text-[10px] text-muted-foreground"
+                                    >
+                                      {alias}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-sm text-muted-foreground">Sem aliases cadastrados.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-border/70 bg-muted/10 px-4 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                          Formatos aceitos
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {dataset.accepted_formats.map((format) => (
+                            <span
+                              key={`${dataset.id}-format-${format}`}
+                              className="rounded-full border border-border/70 bg-background/70 px-2 py-0.5 text-[11px] text-foreground"
+                            >
+                              {format}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-border/70 bg-muted/10 px-4 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                          Status do ultimo upload
+                        </p>
+                        <p className="mt-2 text-sm text-foreground">{dataset.latest_message}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {dataset.filename ?? "Nenhum arquivo"} | {formatTimestamp(dataset.uploaded_at)}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                          Compatibilidade do ultimo upload
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] ${getCompatibilityClasses(
+                              dataset.compatibility_summary.compatibility_status,
+                            )}`}
+                          >
+                            {formatCompatibilityStatus(dataset.compatibility_summary.compatibility_status)}
+                          </span>
+                          <span className="rounded-full border border-border/70 bg-background/70 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-foreground">
+                            Score {dataset.compatibility_summary.compatibility_score}%
+                          </span>
+                          <span className="rounded-full border border-border/70 bg-background/70 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-foreground">
+                            Confianca {dataset.compatibility_summary.confidence_score}%
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {lastValidation?.summary ?? dataset.compatibility_summary.summary}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Aliases mapeados: {aliasList.length}
+                        </p>
+                        {(dataset.compatibility_summary.missing_required_columns.length > 0 ||
+                          dataset.compatibility_summary.quality_gaps.length > 0) && (
+                          <div className="mt-2 rounded-lg border border-warning/25 bg-warning/10 px-2.5 py-2 text-xs text-foreground">
+                            {dataset.compatibility_summary.missing_required_columns.length > 0
+                              ? `Faltando obrigatorias: ${dataset.compatibility_summary.missing_required_columns.join(
+                                  ", ",
+                                )}. `
+                              : ""}
+                            {dataset.compatibility_summary.quality_gaps.length > 0
+                              ? `Lacunas: ${dataset.compatibility_summary.quality_gaps.join(", ")}.`
+                              : ""}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            );
+          })}
+        </Accordion>
+      </section>
+
+      <section className="space-y-2.5">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-muted-foreground/90" />
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+              Governanca e historico
+            </p>
+            <h2 className="text-sm font-semibold text-foreground">
+              Manifesto, historico, cobertura e lacunas em segundo nivel
+            </h2>
+          </div>
         </div>
+
+        <Accordion type="multiple" className="space-y-2">
+          <AccordionItem
+            value="manifest"
+            className="rounded-xl border border-border/50 bg-background/25 px-4"
+          >
+            <AccordionTrigger className="py-3.5 text-left hover:no-underline">
+              <div className="flex items-center gap-2 pr-3">
+                <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Manifesto e governanca contratual</p>
+                  <p className="text-xs text-muted-foreground">
+                    Versao {contractRegistry?.version ?? "n/d"} | Status IA{" "}
+                    {formatAvailabilityStatus(aiReadinessStatus)}
+                  </p>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="pt-0.5">
+              <div className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]">
+                <article className="space-y-4 rounded-2xl border border-border/60 bg-background/45 p-4">
+                  <h3 className="text-base font-semibold text-foreground">
+                    Compatibilidade, lacunas e confianca
+                  </h3>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                        Score medio
+                      </p>
+                      <p className="mt-2 text-xl font-semibold text-foreground">
+                        {averageCompatibility}%
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                        Confianca media
+                      </p>
+                      <p className="mt-2 text-xl font-semibold text-foreground">{averageConfidence}%</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                        Confianca IA
+                      </p>
+                      <p className="mt-2 text-xl font-semibold text-foreground">{aiConfidence}%</p>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                      Maiores lacunas atuais
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {largestGaps.length > 0 ? (
+                        largestGaps.map((gap) => (
+                          <span
+                            key={gap}
+                            className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs text-foreground"
+                          >
+                            {gap}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs text-foreground">
+                          Sem lacunas abertas na ultima rodada.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </article>
+
+                <article className="space-y-4 rounded-2xl border border-border/60 bg-background/45 p-4">
+                  <h3 className="text-base font-semibold text-foreground">Registry oficial</h3>
+                  <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                      Versao do registry
+                    </p>
+                    <p className="mt-2 text-sm font-medium text-foreground">
+                      {contractRegistry?.version ?? "Carregando..."}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                      Compatibilidade legada
+                    </p>
+                    <p className="mt-2 text-sm text-foreground">
+                      {Object.entries(contractRegistry?.aliases ?? {}).length > 0
+                        ? Object.entries(contractRegistry?.aliases ?? {})
+                            .map(([legacy, current]) => `${legacy} -> ${current}`)
+                            .join(", ")
+                        : "Sem aliases legados registrados."}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                      Leitura executiva
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Cada upload registra contrato oficial, colunas reconhecidas, aliases aceitos,
+                      impacto analitico, lacunas de qualidade e nivel de confianca para a camada de
+                      IA executiva.
+                    </p>
+                  </div>
+                </article>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem
+            value="history"
+            className="rounded-xl border border-border/50 bg-background/25 px-4"
+          >
+            <AccordionTrigger className="py-3.5 text-left hover:no-underline">
+              <div className="flex items-center gap-2 pr-3">
+                <Clock3 className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Historico de uploads</p>
+                  <p className="text-xs text-muted-foreground">{historyCount} registro(s)</p>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="pt-0.5">
+              <div className="overflow-x-auto rounded-2xl border border-border/70 bg-background/55">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Base</th>
+                      <th>Arquivo</th>
+                      <th>Data / hora</th>
+                      <th>Formato</th>
+                      <th>Status</th>
+                      <th>Score</th>
+                      <th>Impacto nas analises</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyItems.length > 0 ? (
+                      historyItems.map((item, index) => (
+                        <tr key={`${item.dataset_id}-${item.uploaded_at}-${index}`}>
+                          <td className="text-xs font-medium text-foreground">{item.dataset_name}</td>
+                          <td className="text-xs text-muted-foreground">{item.filename}</td>
+                          <td className="text-xs text-muted-foreground">
+                            {formatTimestamp(item.uploaded_at)}
+                          </td>
+                          <td className="text-xs text-muted-foreground">{item.format}</td>
+                          <td>
+                            <span
+                              className={`rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.2em] ${getStatusClasses(
+                                item.validation_status,
+                              )}`}
+                            >
+                              {formatValidationStatus(item.validation_status)}
+                            </span>
+                          </td>
+                          <td className="text-xs text-muted-foreground">
+                            {item.compatibility_score}%
+                            {item.missing_required_columns.length > 0
+                              ? ` | Faltando: ${item.missing_required_columns.join(", ")}`
+                              : ""}
+                          </td>
+                          <td className="text-xs text-muted-foreground">
+                            {item.readiness_impact.join(", ")}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                          Nenhum upload registrado na governanca central ate o momento.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem
+            value="coverage"
+            className="rounded-xl border border-border/50 bg-background/25 px-4"
+          >
+            <AccordionTrigger className="py-3.5 text-left hover:no-underline">
+              <div className="flex items-center gap-2 pr-3">
+                <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    Informacoes auxiliares de cobertura
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Datasets carregados, faltantes e disponibilidade de DRE
+                  </p>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="pt-0.5">
+              <AnalyticCoveragePanel compact />
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="gaps" className="rounded-xl border border-border/50 bg-background/25 px-4">
+            <AccordionTrigger className="py-3.5 text-left hover:no-underline">
+              <div className="flex items-center gap-2 pr-3">
+                <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Painel de lacunas criticas</p>
+                  <p className="text-xs text-muted-foreground">Visao complementar de riscos de dados</p>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="pt-0.5">
+              <CriticalGapsPanel compact />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </section>
     </PageTransition>
   );

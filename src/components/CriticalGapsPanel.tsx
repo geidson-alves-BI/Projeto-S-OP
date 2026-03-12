@@ -1,7 +1,12 @@
 import { AlertTriangle } from "lucide-react";
 import { useExecutiveContext } from "@/hooks/use-executive-context";
+import { cn } from "@/lib/utils";
 
-export function CriticalGapsPanel() {
+type CriticalGapsPanelProps = {
+  compact?: boolean;
+};
+
+export function CriticalGapsPanel({ compact = false }: CriticalGapsPanelProps) {
   const { executiveContext, loading, error } = useExecutiveContext();
   const keyGaps = Array.isArray(executiveContext?.key_gaps) ? executiveContext.key_gaps : [];
 
@@ -22,14 +27,16 @@ export function CriticalGapsPanel() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex items-center gap-2">
-        <AlertTriangle className="h-4 w-4 text-primary" />
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Lacunas Criticas</p>
-          <h2 className="text-xl font-semibold text-foreground">Painel de Lacunas Criticas</h2>
+    <section className={cn("space-y-4", compact && "space-y-3")}>
+      {!compact ? (
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-primary" />
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Lacunas Criticas</p>
+            <h2 className="text-xl font-semibold text-foreground">Painel de Lacunas Criticas</h2>
+          </div>
         </div>
-      </div>
+      ) : null}
       <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-4">
         <div className="mt-3 flex flex-wrap gap-2">
           {keyGaps.length > 0 ? (
