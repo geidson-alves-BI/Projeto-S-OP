@@ -312,12 +312,18 @@ class AIService:
             else None
         )
         sales_rows = analytics_store.get_dataset_rows("sales_orders")
+        production_rows = analytics_store.get_dataset_rows("production")
+        customers_rows = analytics_store.get_dataset_rows("customers")
+        inventory_rows = analytics_store.get_dataset_rows("raw_material_inventory")
         manifest = analytics_store.get_dataset_manifest()
         history_payload = [item.model_dump() for item in request.history]
         fallback_payload = build_executive_chat_response(
             message=request.message,
             planning_result=planning_result,
             sales_rows=sales_rows,
+            production_rows=production_rows,
+            customers_rows=customers_rows,
+            inventory_rows=inventory_rows,
             manifest=manifest,
             history=history_payload,
             mode=request.mode,
@@ -330,9 +336,17 @@ class AIService:
         model_used = FALLBACK_MODEL_NAME
         fallback_triggered = True
         fallback_reason = "fallback_only" if snapshot.provider == "deterministic" else "provider_not_configured"
+        context_used_fallback = fallback_payload.get("context_used")
+        if not isinstance(context_used_fallback, dict):
+            context_used_fallback = {}
+        query_mode = str(context_used_fallback.get("query_mode") or "executive")
+        allow_openai_for_query = query_mode != "factual"
+
+        if not allow_openai_for_query:
+            fallback_reason = "factual_rule_based"
 
         openai_provider = self._build_openai_provider(snapshot)
-        if snapshot.provider == "openai" and openai_provider is not None:
+        if allow_openai_for_query and snapshot.provider == "openai" and openai_provider is not None:
             try:
                 prompt_payload = build_executive_chat_openai_prompt(
                     message=request.message,
@@ -366,7 +380,7 @@ class AIService:
                 logger.exception(
                     "Erro inesperado no executive chat com OpenAI; fallback para rule-based."
                 )
-        elif snapshot.provider == "openai" and openai_provider is None:
+        elif allow_openai_for_query and snapshot.provider == "openai" and openai_provider is None:
             fallback_reason = "provider_not_configured"
 
         context_used = payload.get("context_used")
@@ -401,10 +415,16 @@ class AIService:
             else None
         )
         sales_rows = analytics_store.get_dataset_rows("sales_orders")
+        production_rows = analytics_store.get_dataset_rows("production")
+        customers_rows = analytics_store.get_dataset_rows("customers")
+        inventory_rows = analytics_store.get_dataset_rows("raw_material_inventory")
         manifest = analytics_store.get_dataset_manifest()
         payload = build_executive_chat_context_payload(
             planning_result=planning_result,
             sales_rows=sales_rows,
+            production_rows=production_rows,
+            customers_rows=customers_rows,
+            inventory_rows=inventory_rows,
             manifest=manifest,
             history=history or [],
         )

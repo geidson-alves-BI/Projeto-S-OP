@@ -5,7 +5,6 @@ import {
   Bot,
   BriefcaseBusiness,
   ChevronDown,
-  Factory,
   FileText,
   Package,
   Settings2,
@@ -27,18 +26,12 @@ import { cn } from "@/lib/utils";
 
 const navSections = [
   {
-    label: "Supply",
-    icon: Factory,
-    items: [
-      { to: "/demanda", label: "Base operacional" },
-      { to: "/abc-xyz", label: "ABC / XYZ" },
-    ],
-  },
-  {
     label: "Producao / Planejamento",
     icon: TrendingUp,
     items: [
       { to: "/planejamento-producao", label: "Planejamento e Producao" },
+      { to: "/demanda", label: "Base operacional" },
+      { to: "/abc-xyz", label: "ABC / XYZ" },
       { to: "/forecast", label: "Forecast" },
       { to: "/mts", label: "MTS / MTO" },
       { to: "/complexidade", label: "Complexidade" },
