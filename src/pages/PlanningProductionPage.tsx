@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Download, Factory, RefreshCcw, ShieldAlert, BrainCircuit } from "lucide-react";
 import {
   Bar,
@@ -13,6 +14,14 @@ import {
   YAxis,
 } from "recharts";
 import { Button } from "@/components/ui/button";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import AnalysisStatusPanel from "@/components/AnalysisStatusPanel";
 import MetricCard from "@/components/MetricCard";
@@ -369,6 +378,14 @@ export default function PlanningProductionPage() {
   const analysisStatus = result ? (result.data_warnings.length > 0 ? "Parcial" : "Pronto") : "Aguardando";
   const analysisStatusClass =
     analysisStatus === "Pronto" ? "status-ok" : analysisStatus === "Parcial" ? "status-warn" : "status-error";
+  const datasets = Array.isArray(uploadCenter?.datasets) ? uploadCenter.datasets : [];
+  const salesOrdersDataset = datasets.find((dataset) => dataset.id === "sales_orders");
+  const productionDataset = datasets.find((dataset) => dataset.id === "production");
+  const hasSalesOrders =
+    Boolean(salesOrdersDataset?.uploaded) && salesOrdersDataset?.availability_status !== "unavailable";
+  const hasProduction =
+    Boolean(productionDataset?.uploaded) && productionDataset?.availability_status !== "unavailable";
+  const showProductionGuidance = hasProduction && !hasSalesOrders;
 
   const recomputeHeatmap = (
     heatmap: PlanningRiskScoring["operational_heatmap"] | undefined,
@@ -484,14 +501,31 @@ export default function PlanningProductionPage() {
 
   return (
     <PageTransition className="p-6 space-y-6">
+      <Breadcrumb>
+        <BreadcrumbList className="text-xs">
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link to="/">Inicio</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Planejamento de Demanda (Comercial)</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
       <section className="metric-card flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
-            <Factory className="h-5 w-5 text-primary" /> Análise e Planejamento de Demanda
+            <Factory className="h-5 w-5 text-primary" /> Planejamento de Demanda (Comercial)
           </h2>
           <p className="text-xs text-muted-foreground font-mono">
-            Blueprint executivo de demanda, crescimento comercial, risco e decisao MTS/MTU.
+            Leitura comercial de demanda, crescimento, risco e decisao MTS/MTU no planning executivo.
           </p>
+          <span className="inline-flex rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+            Fonte principal: Vendas/Pedidos (sales_orders)
+          </span>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <span className="text-[11px] text-muted-foreground">Ultima atualizacao: {formatDateTime(result?.generated_at)}</span>
             <span className={analysisStatusClass}>Analise: {analysisStatus}</span>
@@ -519,10 +553,23 @@ export default function PlanningProductionPage() {
       <AnalysisStatusPanel
         uploadCenter={uploadCenter}
         moduleKey="planning_production"
-        title="Prontidão para Análise e Planejamento de Demanda"
-        description="A analise executiva depende de vendas, clientes, cobertura e contexto financeiro para elevar a confiabilidade."
-        datasetIds={["sales_orders", "customers", "raw_material_inventory", "finance_documents", "forecast_input"]}
+        title="Prontidao para Planejamento de Demanda (Comercial)"
+        description="Pre-requisitos comerciais para liberar a leitura de demanda."
+        summaryOverride="Obrigatorio: sales_orders. Opcionais: customers e raw_material_inventory."
+        requiredDatasetIds={["sales_orders"]}
+        optionalDatasetIds={["customers", "raw_material_inventory"]}
+        primarySource="Vendas/Pedidos (sales_orders)"
       />
+
+      {showProductionGuidance ? (
+        <section className="rounded-2xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-foreground">
+          A base de producao foi carregada com sucesso, mas este modulo usa sales_orders. Para usar producao, acesse{" "}
+          <Link to="/mts" className="font-semibold text-primary underline underline-offset-2">
+            MTS/MTO Operacional (Produção)
+          </Link>
+          .
+        </section>
+      ) : null}
 
       <section className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
         <MetricCard label="Demanda prevista total" value={formatNumber(totals?.final_forecast)} accent />
@@ -1220,7 +1267,7 @@ export default function PlanningProductionPage() {
         </>
       ) : (
         <section className="metric-card text-sm text-muted-foreground">
-          Execute o cenario para consolidar forecast, crescimento comercial, MTS/MTU e visoes executivas.
+          Nenhum cenario executado ainda. Clique em "Atualizar cenario" apos validar os pre-requisitos.
         </section>
       )}
 

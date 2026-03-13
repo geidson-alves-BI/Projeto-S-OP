@@ -1,11 +1,20 @@
 import { useMemo, useState } from "react";
 import { Download, Package } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import MetricCard from "@/components/MetricCard";
 import PageTransition from "@/components/PageTransition";
 import AnalysisStatusPanel from "@/components/AnalysisStatusPanel";
 import { ABCBadge, StratBadge } from "@/components/ABCBadge";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useUploadCenter } from "@/hooks/use-upload-center";
 import { postJSON } from "@/lib/api";
@@ -62,6 +71,14 @@ export default function MtsPage() {
   const [simulationLoading, setSimulationLoading] = useState(false);
   const [simulationError, setSimulationError] = useState<string | null>(null);
   const [simulationResults, setSimulationResults] = useState<SimulationResult[]>([]);
+  const datasets = Array.isArray(uploadCenter?.datasets) ? uploadCenter.datasets : [];
+  const productionDataset = datasets.find((dataset) => dataset.id === "production");
+  const salesOrdersDataset = datasets.find((dataset) => dataset.id === "sales_orders");
+  const hasProduction =
+    Boolean(productionDataset?.uploaded) && productionDataset?.availability_status !== "unavailable";
+  const hasSalesOrders =
+    Boolean(salesOrdersDataset?.uploaded) && salesOrdersDataset?.availability_status !== "unavailable";
+  const showSalesOnlyGuidance = hasSalesOrders && !hasProduction;
 
   const filtered = useMemo(() => {
     if (!state) {
@@ -167,14 +184,31 @@ export default function MtsPage() {
 
   return (
     <PageTransition className="p-6 space-y-6">
+      <Breadcrumb>
+        <BreadcrumbList className="text-xs">
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link to="/">Inicio</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>MTS/MTO Operacional (Produção)</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
-            <Package className="h-5 w-5 text-primary" /> Politica MTS / MTO
+            <Package className="h-5 w-5 text-primary" /> MTS/MTO Operacional (Produção)
           </h2>
           <p className="text-xs text-muted-foreground font-mono mt-1">
-            O modulo usa as bases centralizadas para ler candidatos MTS e apoiar simulacoes de decisao.
+            Leitura operacional baseada em historico de producao para priorizacao e simulacao de politica MTS/MTO.
           </p>
+          <span className="mt-2 inline-flex rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+            Fonte principal: Produção (production)
+          </span>
         </div>
         <Button variant="outline" size="sm" className="font-mono text-xs" onClick={handleExport} disabled={!state}>
           <Download className="h-3.5 w-3.5 mr-1" /> Exportar CSV
@@ -184,15 +218,29 @@ export default function MtsPage() {
       <AnalysisStatusPanel
         uploadCenter={uploadCenter}
         moduleKey="mts_mto"
-        title="Prontidao da politica MTS/MTO"
-        description="A base operacional, o forecast consolidado e a estrutura de produto agora entram pela central de upload."
-        datasetIds={["production", "customers", "forecast_input", "bom"]}
+        title="Prontidao para MTS/MTO Operacional (Produção)"
+        description="Pre-requisitos operacionais para leitura de producao."
+        summaryOverride="Obrigatorio: production. Opcionais: customers. Opcional futuro: bom."
+        requiredDatasetIds={["production"]}
+        optionalDatasetIds={["customers"]}
+        futureOptionalDatasetIds={["bom"]}
+        primarySource="Produção (production)"
       />
+
+      {showSalesOnlyGuidance ? (
+        <section className="rounded-2xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-foreground">
+          Esta visao operacional requer production. Para analise baseada em vendas, use{" "}
+          <Link to="/planejamento-producao" className="font-semibold text-primary underline underline-offset-2">
+            Planejamento de Demanda (Comercial)
+          </Link>
+          .
+        </section>
+      ) : null}
 
       {!state ? (
         <section className="metric-card text-center py-10">
           <p className="text-sm text-muted-foreground">
-            Sem historico operacional consolidado para priorizar candidatos MTS/MTO.
+            Sem historico operacional consolidado para priorizar candidatos no MTS/MTO Operacional (Produção).
           </p>
         </section>
       ) : (
@@ -320,7 +368,7 @@ export default function MtsPage() {
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" className="font-mono text-xs" onClick={addSimulationRow}>Adicionar linha</Button>
           <Button className="font-mono text-sm" onClick={handleSimulateMTS} disabled={simulationLoading}>
-            {simulationLoading ? "Simulando..." : "Simular producao MTS"}
+            {simulationLoading ? "Simulando..." : "Simular Produção MTS"}
           </Button>
         </div>
 

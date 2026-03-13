@@ -26,14 +26,14 @@ import { cn } from "@/lib/utils";
 
 const navSections = [
   {
-    label: "Análise e Planejamento de Demanda",
+    label: "Planejamento e Operacoes",
     icon: TrendingUp,
     items: [
-      { to: "/planejamento-producao", label: "Análise e Planejamento de Demanda" },
+      { to: "/planejamento-producao", label: "Planejamento de Demanda (Comercial)" },
       { to: "/demanda", label: "Base operacional" },
       { to: "/abc-xyz", label: "ABC / XYZ" },
       { to: "/forecast", label: "Forecast" },
-      { to: "/mts", label: "MTS / MTO" },
+      { to: "/mts", label: "MTS/MTO Operacional (Produção)" },
       { to: "/complexidade", label: "Complexidade" },
     ],
   },
@@ -183,7 +183,7 @@ export default function TopNav() {
             );
           })}
 
-          {/* Configuracoes — always last */}
+          {/* Configuracoes - always last */}
           <Link to={showUpdateBadgeOnSettings ? "/configuracoes?tab=atualizacoes" : "/configuracoes"}>
             <Button
               variant={location.pathname === "/configuracoes" ? "default" : "ghost"}
@@ -221,3 +221,4 @@ export default function TopNav() {
     </header>
   );
 }
+

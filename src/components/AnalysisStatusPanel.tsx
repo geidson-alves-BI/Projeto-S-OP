@@ -10,7 +10,12 @@ type AnalysisStatusPanelProps = {
   moduleKey: UploadReadinessKey;
   title: string;
   description: string;
-  datasetIds: UploadDatasetKey[];
+  datasetIds?: UploadDatasetKey[];
+  requiredDatasetIds?: UploadDatasetKey[];
+  optionalDatasetIds?: UploadDatasetKey[];
+  futureOptionalDatasetIds?: UploadDatasetKey[];
+  primarySource?: string;
+  summaryOverride?: string;
   compact?: boolean;
 };
 
@@ -29,7 +34,12 @@ export default function AnalysisStatusPanel({
   moduleKey,
   title,
   description,
-  datasetIds,
+  datasetIds = [],
+  requiredDatasetIds,
+  optionalDatasetIds = [],
+  futureOptionalDatasetIds = [],
+  primarySource,
+  summaryOverride,
   compact = false,
 }: AnalysisStatusPanelProps) {
   const moduleStatus = resolveReadinessModule(uploadCenter, moduleKey);
@@ -37,6 +47,32 @@ export default function AnalysisStatusPanel({
   const datasetMap = new Map(datasets.map((dataset) => [dataset.id, dataset]));
   const status = moduleStatus?.status ?? "unavailable";
   const Icon = getStatusIcon(status);
+  const requiredIds = requiredDatasetIds ?? datasetIds;
+  const datasetGroups: Array<{
+    key: string;
+    title: string;
+    helper: string;
+    ids: UploadDatasetKey[];
+  }> = [
+    {
+      key: "required",
+      title: "Obrigatorio",
+      helper: "Sem estes datasets, o modulo nao fica pronto para uso.",
+      ids: requiredIds,
+    },
+    {
+      key: "optional",
+      title: "Opcional",
+      helper: "Melhora contexto e confianca, sem bloquear o modulo.",
+      ids: optionalDatasetIds,
+    },
+    {
+      key: "future-optional",
+      title: "Opcional futuro",
+      helper: "Planejado para ampliar a analise em etapas futuras.",
+      ids: futureOptionalDatasetIds,
+    },
+  ].filter((group) => group.ids.length > 0);
 
   return (
     <section className={cn("metric-card space-y-4", compact && "space-y-3")}>
@@ -56,26 +92,42 @@ export default function AnalysisStatusPanel({
       </div>
 
       <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3 text-sm text-foreground">
-        {moduleStatus?.summary ?? "Este modulo depende da central de upload para ganhar cobertura analitica."}
+        {summaryOverride ?? moduleStatus?.summary ?? "Este modulo depende da central de upload para ganhar cobertura analitica."}
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {datasetIds.map((datasetId) => {
-          const dataset = datasetMap.get(datasetId);
-          return (
-            <div key={datasetId} className="rounded-2xl border border-border/70 bg-background/60 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-                {dataset?.name ?? datasetId}
-              </p>
-              <p className="mt-2 text-sm font-medium text-foreground">
-                {dataset?.uploaded ? dataset.last_upload_status : "Sem upload"}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {dataset?.filename ? dataset.filename : "Enviar pela central para liberar este modulo."}
-              </p>
+      {primarySource ? (
+        <div className="inline-flex w-fit rounded-full border border-primary/35 bg-primary/10 px-3 py-1 text-xs text-foreground">
+          Fonte principal: {primarySource}
+        </div>
+      ) : null}
+
+      <div className="space-y-3">
+        {datasetGroups.map((group) => (
+          <div key={group.key} className="space-y-2">
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">{group.title}</p>
+              <p className="text-xs text-muted-foreground">{group.helper}</p>
             </div>
-          );
-        })}
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {group.ids.map((datasetId) => {
+                const dataset = datasetMap.get(datasetId);
+                return (
+                  <div key={`${group.key}-${datasetId}`} className="rounded-2xl border border-border/70 bg-background/60 px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                      {dataset?.name ?? datasetId}
+                    </p>
+                    <p className="mt-2 text-sm font-medium text-foreground">
+                      {dataset?.uploaded ? dataset.last_upload_status : "Sem upload"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {dataset?.filename ? dataset.filename : "Enviar pela central para liberar este modulo."}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

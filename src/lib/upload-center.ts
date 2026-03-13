@@ -24,13 +24,28 @@ const DATASET_KEYS: UploadDatasetKey[] = [
 
 const READINESS_LABEL_FALLBACK: Record<UploadReadinessKey, string> = {
   overall: "Prontidao geral",
-  planning_production: "Análise e Planejamento de Demanda",
+  planning_production: "Planejamento de Demanda (Comercial)",
   forecast: "Forecast",
-  mts_mto: "Politica MTS/MTO",
+  mts_mto: "MTS/MTO Operacional (Produção)",
   raw_material: "Materia-prima",
   finance: "Financeiro",
   executive_ai: "IA Executiva",
 };
+
+const DATASET_USAGE_LABELS: Record<UploadDatasetKey, string> = {
+  sales_orders: "Planejamento de Demanda (Comercial)",
+  production: "MTS/MTO Operacional (Produção)",
+  raw_material_inventory:
+    "Planejamento de Demanda (Comercial) e MTS/MTO Operacional (Produção), quando aplicavel",
+  customers: "Planejamento de Demanda (Comercial) e MTS/MTO Operacional (Produção)",
+  bom: "MTS/MTO Operacional (Produção) (opcional futuro)",
+  forecast_input: "Planejamento de Demanda (Comercial) (suporte de forecast)",
+  finance_documents: "Planejamento de Demanda (Comercial) (contexto financeiro)",
+};
+
+export function getDatasetUsageLabel(datasetId: UploadDatasetKey) {
+  return DATASET_USAGE_LABELS[datasetId] ?? "Suporte executivo";
+}
 
 function normalizeHeader(value: string) {
   return value
@@ -342,4 +357,5 @@ export function summarizeDataset(dataset: UploadDataset | null) {
   }
   return dataset.latest_message;
 }
+
 

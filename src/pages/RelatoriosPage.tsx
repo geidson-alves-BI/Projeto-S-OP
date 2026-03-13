@@ -83,9 +83,9 @@ export default function RelatoriosPage() {
         ready: isAvailable("Historico mensal"),
       },
       {
-        name: "Politica MTS/MTO",
+        name: "MTS/MTO Operacional (Produção)",
         description: "Recomendacao de politica de atendimento e estrategia de abastecimento.",
-        ready: isAvailable("Estrategia MTS/MTO"),
+        ready: isAvailable("MTS/MTO Operacional (Produção)"),
       },
       {
         name: "Materia-prima",

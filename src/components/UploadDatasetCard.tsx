@@ -2,7 +2,7 @@ import { useMemo, useRef } from "react";
 import { ArrowUpRight, FileSearch, Loader2, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { formatTimestamp, formatValidationStatus, getStatusClasses } from "@/lib/upload-center";
+import { formatTimestamp, formatValidationStatus, getDatasetUsageLabel, getStatusClasses } from "@/lib/upload-center";
 import type { UploadDataset } from "@/types/analytics";
 
 export type UploadFeedback = {
@@ -19,6 +19,7 @@ type UploadDatasetCardProps = {
   feedback?: UploadFeedback | null;
   actionLabel?: string;
   description?: string;
+  usedIn?: string;
   onOpenDictionary?: () => void;
 };
 
@@ -51,6 +52,7 @@ export default function UploadDatasetCard({
   feedback = null,
   actionLabel = "Enviar base",
   description,
+  usedIn,
   onOpenDictionary,
 }: UploadDatasetCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -60,6 +62,7 @@ export default function UploadDatasetCard({
   );
   const statusLabel = formatCompactAvailabilityStatus(dataset.availability_status);
   const validationLabel = formatValidationStatus(dataset.validation_status);
+  const usageLabel = usedIn ?? getDatasetUsageLabel(dataset.id);
 
   const handlePrimaryAction = () => {
     if (loading) {
@@ -78,6 +81,7 @@ export default function UploadDatasetCard({
         <div className="space-y-1">
           <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">{dataset.category}</p>
           <h3 className="text-sm font-semibold leading-snug text-foreground">{dataset.name}</h3>
+          <p className="text-[10px] leading-relaxed text-muted-foreground">Usado em: {usageLabel}</p>
         </div>
         <span
           className={cn(

@@ -47,6 +47,7 @@ type UploadCardDefinition = {
   feedback?: UploadFeedback | null;
   actionLabel: string;
   description?: string;
+  usedIn?: string;
 };
 
 const PRIMARY_UPLOAD_KEYS: UploadDatasetKey[] = [
@@ -191,7 +192,7 @@ export default function UploadPage() {
       setProductionFile(null);
       return {
         tone: "success",
-        message: `${result.productsCount} produtos e ${result.monthCount} meses liberados para o modulo operacional.`,
+        message: `${result.productsCount} produtos e ${result.monthCount} meses liberados para MTS/MTO Operacional (Produção).`,
       };
     });
   };
@@ -210,7 +211,7 @@ export default function UploadPage() {
         tone: toneFromValidation(response.validation),
         message: messageFromValidation(
           response.validation,
-          "Carteira comercial validada e pronta para governanca central.",
+          "Carteira comercial validada e pronta para Planejamento de Demanda (Comercial).",
         ),
       };
     });
@@ -236,7 +237,7 @@ export default function UploadPage() {
         tone: "success",
         message: result.hasProductionLoaded
           ? "Clientes conectados ao historico para leitura de concentracao comercial."
-          : "Clientes registrados; a conexao completa acontece quando a base de producao estiver carregada.",
+          : "Clientes registrados; a conexao completa acontece quando a base de Produção estiver carregada.",
       };
     });
   };
@@ -337,7 +338,8 @@ export default function UploadPage() {
       onUpload: handleProductionUpload,
       loading: Boolean(datasetLoading.production),
       feedback: feedback.production,
-      actionLabel: "Atualizar producao",
+      actionLabel: "Atualizar Produção",
+      usedIn: "MTS/MTO Operacional (Produção)",
     },
     {
       key: "sales_orders",
@@ -348,6 +350,7 @@ export default function UploadPage() {
       loading: Boolean(datasetLoading.sales_orders),
       feedback: feedback.sales_orders,
       actionLabel: "Atualizar vendas",
+      usedIn: "Planejamento de Demanda (Comercial)",
     },
     {
       key: "customers",
@@ -358,6 +361,7 @@ export default function UploadPage() {
       loading: Boolean(datasetLoading.customers),
       feedback: feedback.customers,
       actionLabel: "Atualizar clientes",
+      usedIn: "Planejamento de Demanda (Comercial) e MTS/MTO Operacional (Produção)",
     },
     {
       key: "bom",
@@ -368,6 +372,7 @@ export default function UploadPage() {
       loading: Boolean(datasetLoading.bom),
       feedback: feedback.bom,
       actionLabel: "Atualizar estrutura",
+      usedIn: "MTS/MTO Operacional (Produção) (opcional futuro)",
     },
     {
       key: "raw_material_inventory",
@@ -378,6 +383,7 @@ export default function UploadPage() {
       loading: Boolean(datasetLoading.raw_material_inventory),
       feedback: feedback.raw_material_inventory,
       actionLabel: "Atualizar estoque MP",
+      usedIn: "Planejamento de Demanda (Comercial) e MTS/MTO Operacional (Produção), quando aplicavel",
     },
     {
       key: "finance_documents",
@@ -390,6 +396,7 @@ export default function UploadPage() {
       actionLabel: "Anexar documentos",
       description:
         "Formatos aceitos: .pdf, .xlsx, .xls, .csv, .png, .jpg, .jpeg, .webp, .txt, .docx",
+      usedIn: "Financeiro e IA Executiva",
     },
     {
       key: "forecast_input",
@@ -400,6 +407,7 @@ export default function UploadPage() {
       loading: Boolean(datasetLoading.forecast_input),
       feedback: feedback.forecast_input,
       actionLabel: "Atualizar forecast",
+      usedIn: "Forecast e IA Executiva",
     },
   ];
 
@@ -523,6 +531,7 @@ export default function UploadPage() {
               feedback={card.feedback}
               actionLabel={card.actionLabel}
               description={card.description}
+              usedIn={card.usedIn}
               onOpenDictionary={() => openDictionaryFor(card.key)}
             />
           ))}

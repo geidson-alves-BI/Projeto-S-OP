@@ -210,7 +210,7 @@ export default function ExecutiveChatWidget() {
           id: nowId(),
           role: "assistant",
           content:
-            "Nao consegui responder agora. Verifique backend ativo e execucao da Análise e Planejamento de Demanda.",
+            "Nao consegui responder agora. Verifique backend ativo e execucao de Planejamento de Demanda (Comercial).",
           meta: { confidence: "low", partial: true },
         },
       ]);

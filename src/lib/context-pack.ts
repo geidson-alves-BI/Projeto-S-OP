@@ -283,7 +283,7 @@ function buildSources(raw: ContextPack | null, state: AppState | null, rmData: R
   const sources: ContextPackSourceStatus[] = [
     {
       key: "fg",
-      label: "FG / producao",
+      label: "FG / Produção",
       available: Boolean(state?.products.length),
       detail: state?.products.length
         ? `${state.products.length} SKUs e ${state.monthCols.length} meses carregados.`
@@ -315,11 +315,11 @@ function buildSources(raw: ContextPack | null, state: AppState | null, rmData: R
     },
     {
       key: "mts_mto",
-      label: "Simulacao MTS/MTO",
+      label: "MTS/MTO Operacional (Produção)",
       available: hasSimulation || hasStrategy,
       detail: hasSimulation || hasStrategy
-        ? "Politica de atendimento com sinais suficientes para decisao inicial."
-        : "Sem simulacao MTS/MTO: recomendacao de politica parcial.",
+        ? "Leitura operacional com sinais suficientes para decisao inicial."
+        : "Sem base operacional consolidada para leitura MTS/MTO.",
     },
     {
       key: "materia_prima",
@@ -408,7 +408,7 @@ function buildComponents(
     },
     {
       key: "mts_mto_strategy",
-      label: "Estrategia MTS/MTO",
+      label: "MTS/MTO Operacional (Produção)",
       available: sourceFlags.hasStrategy,
       detail: sourceFlags.hasStrategy
         ? "Politica de atendimento pronta para desdobramento por SKU."

@@ -90,7 +90,7 @@ export default function HomePage() {
               <div className="rounded-2xl border border-border/70 bg-background/40 p-5">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Operacao</p>
                 <p className="mt-3 text-lg font-semibold text-foreground">Nova carga necessaria</p>
-                <p className="mt-2 text-sm text-muted-foreground">Importe dados de producao, clientes e materia-prima para liberar a visao executiva.</p>
+                <p className="mt-2 text-sm text-muted-foreground">Importe dados de Produção, clientes e materia-prima para liberar a visao executiva.</p>
               </div>
             </div>
 
@@ -238,8 +238,8 @@ export default function HomePage() {
 
   const moduleShortcuts = [
     {
-      title: "Operacao e planejamento",
-      description: "Volume, criticidade e politica de atendimento.",
+      title: "MTS/MTO Operacional (Produção)",
+      description: "Volume, criticidade e politica operacional de atendimento.",
       to: "/mts",
       icon: TrendingUp,
     },
