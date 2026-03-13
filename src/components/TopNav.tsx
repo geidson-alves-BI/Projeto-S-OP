@@ -26,10 +26,10 @@ import { cn } from "@/lib/utils";
 
 const navSections = [
   {
-    label: "Producao / Planejamento",
+    label: "Análise e Planejamento de Demanda",
     icon: TrendingUp,
     items: [
-      { to: "/planejamento-producao", label: "Planejamento e Producao" },
+      { to: "/planejamento-producao", label: "Análise e Planejamento de Demanda" },
       { to: "/demanda", label: "Base operacional" },
       { to: "/abc-xyz", label: "ABC / XYZ" },
       { to: "/forecast", label: "Forecast" },

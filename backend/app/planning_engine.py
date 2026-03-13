@@ -134,6 +134,24 @@ def _to_number(value: Any) -> float:
     return float(parsed)
 
 
+def _to_optional_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if np.isnan(value):
+            return None
+        return bool(value)
+
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    if raw in {"sim", "s", "yes", "y", "true", "t", "1"}:
+        return True
+    if raw in {"nao", "não", "n", "no", "false", "f", "0"}:
+        return False
+    return None
+
+
 def _to_month_start(value: Any) -> pd.Timestamp | None:
     parsed = pd.to_datetime(value, errors="coerce")
     if pd.isna(parsed):
@@ -804,32 +822,100 @@ def _factor_from_growth(global_pct: float, *parts: float) -> float:
     return max(factor, 0.0)
 
 
-def _build_inventory_stock_map(inventory_rows: list[dict[str, Any]] | None) -> dict[str, float]:
+def _build_inventory_snapshot_map(
+    inventory_rows: list[dict[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
     if not inventory_rows:
         return {}
+
     frame = pd.DataFrame(inventory_rows)
     if frame.empty or "product_code" not in frame.columns:
         return {}
 
-    stock_column = None
-    for candidate in ("available_stock", "stock_available", "inventory_available"):
-        if candidate in frame.columns:
-            stock_column = candidate
-            break
-    if stock_column is None:
+    frame["product_code"] = frame["product_code"].astype(str).str.strip()
+    frame = frame[frame["product_code"] != ""].copy()
+    if frame.empty:
         return {}
 
-    frame["product_code"] = frame["product_code"].astype(str).str.strip()
-    frame[stock_column] = frame[stock_column].map(_to_number)
-    grouped = (
-        frame.groupby("product_code", as_index=False)[stock_column]
-        .sum()
-        .rename(columns={stock_column: "available_stock"})
-    )
-    return {
-        str(row["product_code"]): float(row["available_stock"])
-        for row in grouped.to_dict(orient="records")
+    numeric_candidates: dict[str, tuple[str, ...]] = {
+        "available_stock": ("available_stock", "stock_available", "inventory_available", "se_saldo_disponivel_un"),
+        "general_stock": ("general_stock", "seg_saldo_estoque_geral"),
+        "quarantine_stock": ("quarantine_stock", "seq_saldo_quarentena_un"),
+        "safety_stock": ("safety_stock", "es_estoque_seguranca"),
+        "on_order_stock": ("on_order_stock", "pc_abertos"),
+        "reorder_point": ("reorder_point", "pp_ponto_pedido"),
+        "coverage_days": ("coverage_time_days", "tc_tempo_cobertura_dias", "coverage_days"),
+        "replenishment_time_days": ("replenishment_time_days", "tr_tempo_reposicao"),
+        "purchase_cycle_days": ("purchase_cycle_days", "cc_ciclo_compras_dias"),
+        "suggested_purchase_quantity": ("suggested_purchase_quantity", "qsc_quantidade_sugerida_compra"),
+        "unit_cost_usd": ("last_entry_unit_net_cost_usd", "unit_net_cost_usd", "custo_liquido_ultima_entrada_usd", "custo_liquido_usd"),
+        "financial_investment_12m_brl": ("financial_investment_12m_brl", "hist_invest_fin_12m_brl"),
+        "financial_investment_12m_usd": ("financial_investment_12m_usd", "hist_invest_fin_12m_usd"),
     }
+    bool_candidates: dict[str, tuple[str, ...]] = {
+        "purchase_needed": (
+            "purchase_needed",
+            "necessario_pedido",
+            "needs_purchase_next_cycle",
+            "npc_necessario_pedido_compra_proximo_ciclo",
+            "cycle_replenishment_required",
+            "rpn_reposicao_necessaria_ciclo",
+        ),
+    }
+    text_candidates: dict[str, tuple[str, ...]] = {
+        "supplier": ("last_entry_supplier", "fornecedor_ultima_entrada", "supplier"),
+        "origin": ("last_entry_origin", "origem_ultima_entrada", "origin"),
+    }
+
+    selected_numeric: dict[str, str] = {}
+    for target, candidates in numeric_candidates.items():
+        for candidate in candidates:
+            if candidate in frame.columns:
+                selected_numeric[target] = candidate
+                frame[candidate] = frame[candidate].map(_to_number)
+                break
+
+    selected_bool: dict[str, str] = {}
+    for target, candidates in bool_candidates.items():
+        for candidate in candidates:
+            if candidate in frame.columns:
+                selected_bool[target] = candidate
+                frame[candidate] = frame[candidate].map(_to_optional_bool)
+                break
+
+    selected_text: dict[str, str] = {}
+    for target, candidates in text_candidates.items():
+        for candidate in candidates:
+            if candidate in frame.columns:
+                selected_text[target] = candidate
+                frame[candidate] = frame[candidate].astype(str).str.strip()
+                break
+
+    out: dict[str, dict[str, Any]] = {}
+    for product_code, bucket in frame.groupby("product_code"):
+        item: dict[str, Any] = {"product_code": str(product_code)}
+
+        for target, source in selected_numeric.items():
+            series = bucket[source].astype(float)
+            if target in {"available_stock", "general_stock", "quarantine_stock", "on_order_stock", "financial_investment_12m_brl", "financial_investment_12m_usd"}:
+                item[target] = float(series.sum())
+            elif target in {"unit_cost_usd", "replenishment_time_days", "purchase_cycle_days", "coverage_days", "reorder_point", "safety_stock", "suggested_purchase_quantity"}:
+                valid = [float(value) for value in series.tolist() if np.isfinite(value) and value != 0.0]
+                item[target] = valid[0] if valid else float(series.max()) if len(series) > 0 else 0.0
+            else:
+                item[target] = float(series.mean()) if len(series) > 0 else 0.0
+
+        for target, source in selected_bool.items():
+            values = [value for value in bucket[source].tolist() if isinstance(value, bool)]
+            item[target] = any(values) if values else None
+
+        for target, source in selected_text.items():
+            values = [str(value).strip() for value in bucket[source].tolist() if str(value).strip()]
+            item[target] = values[0] if values else ""
+
+        out[str(product_code)] = item
+
+    return out
 
 
 def _build_method_aggregate(
@@ -1056,7 +1142,7 @@ def export_planning_result_pdf(result: dict[str, Any]) -> bytes:
     alerts = result.get("risk_alerts", {})
 
     lines = [
-        "Operion - Planejamento e Producao",
+        "Operion - Análise e Planejamento de Demanda",
         f"Gerado em: {result.get('generated_at', '-')}",
         f"Cenario: {result.get('scenario_name', 'Principal')}",
         f"Metodo selecionado: {result.get('selected_method', '-')}",
@@ -1586,11 +1672,13 @@ def run_planning_analysis(
         fallback_confidence
     )
 
-    stock_map = _build_inventory_stock_map(inventory_rows)
+    inventory_snapshot_map = _build_inventory_snapshot_map(inventory_rows)
     scenario_rows: list[dict[str, Any]] = []
     rupture_risk_count = 0
     excess_risk_count = 0
     missing_stock_count = 0
+    purchase_need_count = 0
+    missing_cost_count = 0
 
     for row in summary_by_product.to_dict(orient="records"):
         product_code = str(row["product_code"])
@@ -1600,14 +1688,56 @@ def run_planning_analysis(
         mts_recommended = demand_monthly * (max(mts_coverage_days, 1) / 30.0)
         mtu_recommended = demand_monthly * (max(mtu_coverage_days, 1) / 30.0)
 
-        stock_available = stock_map.get(product_code)
+        snapshot = inventory_snapshot_map.get(product_code, {})
+        raw_stock_available = snapshot.get("available_stock")
+        stock_available = (
+            float(_to_number(raw_stock_available))
+            if raw_stock_available not in (None, "")
+            else None
+        )
+        stock_on_order = float(_to_number(snapshot.get("on_order_stock")))
+        stock_safety = float(_to_number(snapshot.get("safety_stock")))
+        reorder_point = float(_to_number(snapshot.get("reorder_point")))
+        supplier = str(snapshot.get("supplier") or "").strip()
+        unit_cost_usd = float(_to_number(snapshot.get("unit_cost_usd")))
+        suggested_purchase_qty = float(_to_number(snapshot.get("suggested_purchase_quantity")))
+        financial_investment_12m_brl = float(_to_number(snapshot.get("financial_investment_12m_brl")))
+
+        purchase_needed_raw = snapshot.get("purchase_needed")
+        purchase_needed = (
+            purchase_needed_raw
+            if isinstance(purchase_needed_raw, bool)
+            else _to_optional_bool(purchase_needed_raw)
+        )
+
+        raw_coverage_days = snapshot.get("coverage_days")
+        coverage_days = (
+            float(_to_number(raw_coverage_days))
+            if raw_coverage_days not in (None, "")
+            else None
+        )
+        if coverage_days is not None and coverage_days <= 0:
+            coverage_days = None
+
+        stock_position = (
+            stock_available + max(stock_on_order, 0.0)
+            if stock_available is not None
+            else None
+        )
+        target_stock = max(mtu_recommended, reorder_point, stock_safety)
+
         if stock_available is None:
             risk = "missing_stock_data"
             missing_stock_count += 1
-            coverage_days = None
+            projected_purchase_need_qty = max(suggested_purchase_qty, 0.0) if purchase_needed else 0.0
         else:
-            coverage_days = (stock_available / max(demand_monthly, 1e-9)) * 30.0
-            if stock_available < mtu_recommended:
+            if coverage_days is None:
+                coverage_days = (stock_available / max(demand_monthly, 1e-9)) * 30.0
+            projected_purchase_need_qty = max(target_stock - (stock_position or 0.0), 0.0)
+            if purchase_needed and projected_purchase_need_qty <= 0.0:
+                projected_purchase_need_qty = max(suggested_purchase_qty, 0.0)
+
+            if purchase_needed or (stock_position or 0.0) < target_stock:
                 risk = "rupture_risk"
                 rupture_risk_count += 1
             elif stock_available > (mts_recommended * max(excess_multiplier, 1.0)):
@@ -1615,6 +1745,17 @@ def run_planning_analysis(
                 excess_risk_count += 1
             else:
                 risk = "balanced"
+
+        if purchase_needed:
+            purchase_need_count += 1
+
+        projected_purchase_value_usd = (
+            projected_purchase_need_qty * unit_cost_usd
+            if unit_cost_usd > 0
+            else 0.0
+        )
+        if projected_purchase_need_qty > 0 and unit_cost_usd <= 0:
+            missing_cost_count += 1
 
         class_value = str(row.get("abc_class", "UNCLASSIFIED"))
         if risk == "rupture_risk":
@@ -1634,9 +1775,20 @@ def run_planning_analysis(
                 "demand_forecast": demand_total,
                 "demand_monthly_avg": demand_monthly,
                 "stock_available": stock_available,
+                "stock_on_order": stock_on_order,
+                "stock_safety": stock_safety,
+                "stock_position": stock_position,
+                "reorder_point": reorder_point,
                 "coverage_days": coverage_days,
                 "mts_recommended_volume": mts_recommended,
                 "mtu_recommended_volume": mtu_recommended,
+                "purchase_needed": purchase_needed,
+                "suggested_purchase_qty": suggested_purchase_qty,
+                "projected_purchase_need_qty": projected_purchase_need_qty,
+                "projected_purchase_value_usd": projected_purchase_value_usd,
+                "unit_cost_usd": unit_cost_usd,
+                "last_entry_supplier": supplier or None,
+                "financial_investment_12m_brl": financial_investment_12m_brl,
                 "suggested_policy": suggested_policy,
                 "risk_status": risk,
             }
@@ -1648,6 +1800,33 @@ def run_planning_analysis(
     )
     summary_by_product["stock_available"] = summary_by_product["product_code"].map(
         lambda code: scenario_lookup.get(str(code), {}).get("stock_available")
+    )
+    summary_by_product["stock_position"] = summary_by_product["product_code"].map(
+        lambda code: scenario_lookup.get(str(code), {}).get("stock_position")
+    )
+    summary_by_product["stock_on_order"] = summary_by_product["product_code"].map(
+        lambda code: scenario_lookup.get(str(code), {}).get("stock_on_order")
+    )
+    summary_by_product["reorder_point"] = summary_by_product["product_code"].map(
+        lambda code: scenario_lookup.get(str(code), {}).get("reorder_point")
+    )
+    summary_by_product["purchase_needed"] = summary_by_product["product_code"].map(
+        lambda code: scenario_lookup.get(str(code), {}).get("purchase_needed")
+    )
+    summary_by_product["projected_purchase_need_qty"] = summary_by_product["product_code"].map(
+        lambda code: scenario_lookup.get(str(code), {}).get("projected_purchase_need_qty")
+    )
+    summary_by_product["projected_purchase_value_usd"] = summary_by_product["product_code"].map(
+        lambda code: scenario_lookup.get(str(code), {}).get("projected_purchase_value_usd")
+    )
+    summary_by_product["unit_cost_usd"] = summary_by_product["product_code"].map(
+        lambda code: scenario_lookup.get(str(code), {}).get("unit_cost_usd")
+    )
+    summary_by_product["last_entry_supplier"] = summary_by_product["product_code"].map(
+        lambda code: scenario_lookup.get(str(code), {}).get("last_entry_supplier")
+    )
+    summary_by_product["financial_investment_12m_brl"] = summary_by_product["product_code"].map(
+        lambda code: scenario_lookup.get(str(code), {}).get("financial_investment_12m_brl")
     )
     summary_by_product["risk_status"] = summary_by_product["product_code"].map(
         lambda code: scenario_lookup.get(str(code), {}).get("risk_status", "missing_stock_data")
@@ -2275,6 +2454,15 @@ def run_planning_analysis(
         "historical_quantity": historical_total_quantity,
         "historical_value": historical_total_value,
         "estimated_revenue": float(summary_by_product["estimated_revenue"].sum()),
+        "projected_purchase_need_qty": float(
+            sum(_to_number(row.get("projected_purchase_need_qty")) for row in scenario_rows)
+        ),
+        "projected_purchase_value_usd": float(
+            sum(_to_number(row.get("projected_purchase_value_usd")) for row in scenario_rows)
+        ),
+        "materials_with_purchase_need": int(
+            sum(1 for row in scenario_rows if bool(row.get("purchase_needed")))
+        ),
     }
     totals["growth_impact_pct"] = (
         ((totals["final_forecast"] / totals["base_forecast"]) - 1.0) * 100.0
@@ -2289,6 +2477,10 @@ def run_planning_analysis(
     if missing_stock_count > 0:
         data_warnings.append(
             "Estoque/cobertura nao disponivel para parte dos produtos. Alertas MTS/MTU podem estar parciais."
+        )
+    if missing_cost_count > 0:
+        data_warnings.append(
+            "Parte dos itens com necessidade de compra nao possui custo liquido; impacto financeiro ficou parcial."
         )
 
     if any(
@@ -2364,8 +2556,10 @@ def run_planning_analysis(
             "rupture_risk_count": rupture_risk_count,
             "excess_risk_count": excess_risk_count,
             "missing_stock_count": missing_stock_count,
+            "purchase_need_count": purchase_need_count,
             "total_products_evaluated": len(scenario_rows),
         },
         "data_warnings": data_warnings,
     }
     return result
+

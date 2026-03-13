@@ -24,7 +24,7 @@ const DATASET_KEYS: UploadDatasetKey[] = [
 
 const READINESS_LABEL_FALLBACK: Record<UploadReadinessKey, string> = {
   overall: "Prontidao geral",
-  planning_production: "Planejamento e Producao",
+  planning_production: "Análise e Planejamento de Demanda",
   forecast: "Forecast",
   mts_mto: "Politica MTS/MTO",
   raw_material: "Materia-prima",
@@ -342,3 +342,4 @@ export function summarizeDataset(dataset: UploadDataset | null) {
   }
   return dataset.latest_message;
 }
+

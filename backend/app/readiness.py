@@ -51,7 +51,7 @@ def _calculate_module_readiness(
 ANALYTICAL_MODULES = {
     "planning_production": {
         "key": "planning_production",
-        "label": "Planejamento e Producao",
+        "label": "Análise e Planejamento de Demanda",
         "required": ["sales_orders"],
         "optional": ["customers", "raw_material_inventory", "finance_documents", "forecast_input"],
         "description": "Consolida forecast, crescimento comercial e cenarios MTS/MTU para decisao executiva.",
@@ -136,3 +136,4 @@ def get_readiness_summary(manifest: dict[str, dict[str, Any]]) -> dict[str, Any]
         "overall_confidence": overall_confidence,
         "modules": list(modules.values()),
     }
+

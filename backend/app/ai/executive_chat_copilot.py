@@ -734,7 +734,7 @@ def _build_chat_context(
     limitations: list[str] = []
 
     if not planning:
-        missing_data.append("Resultado consolidado de Planejamento e Producao")
+        missing_data.append("Resultado consolidado de Análise e Planejamento de Demanda")
     if not summary_by_product:
         missing_data.append("Forecast consolidado por produto")
     if not summary_by_customer:
@@ -1808,7 +1808,7 @@ def _handle_top_risks(context: dict[str, Any]) -> ResponseDraft:
         draft.confidence = "low"
         draft.missing_data.append("Top riscos executivos e score de risco")
         draft.executive_recommendation.append(
-            "Execute novamente o Planejamento e Producao para gerar os heatmaps e o ranking de riscos."
+            "Execute novamente a Análise e Planejamento de Demanda para gerar os heatmaps e o ranking de riscos."
         )
         _ensure_context_items(draft, context)
         return draft
@@ -2963,3 +2963,4 @@ def merge_executive_chat_openai_output(
         }
     )
     return merged_payload, _unique_keep_order(warnings)
+

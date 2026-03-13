@@ -479,6 +479,9 @@ export type PlanningProductionResult = {
     historical_quantity?: number;
     historical_value?: number;
     estimated_revenue?: number;
+    projected_purchase_need_qty?: number;
+    projected_purchase_value_usd?: number;
+    materials_with_purchase_need?: number;
   };
   filters_applied: Record<string, unknown>;
   growth_parameters: Record<string, unknown>;
@@ -500,6 +503,7 @@ export type PlanningProductionResult = {
     rupture_risk_count: number;
     excess_risk_count: number;
     missing_stock_count: number;
+    purchase_need_count?: number;
     total_products_evaluated: number;
   };
   data_warnings: string[];

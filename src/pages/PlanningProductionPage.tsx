@@ -487,7 +487,7 @@ export default function PlanningProductionPage() {
       <section className="metric-card flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
-            <Factory className="h-5 w-5 text-primary" /> Planejamento e Producao
+            <Factory className="h-5 w-5 text-primary" /> Análise e Planejamento de Demanda
           </h2>
           <p className="text-xs text-muted-foreground font-mono">
             Blueprint executivo de demanda, crescimento comercial, risco e decisao MTS/MTU.
@@ -519,15 +519,20 @@ export default function PlanningProductionPage() {
       <AnalysisStatusPanel
         uploadCenter={uploadCenter}
         moduleKey="planning_production"
-        title="Prontidao para Planejamento e Producao"
+        title="Prontidão para Análise e Planejamento de Demanda"
         description="A analise executiva depende de vendas, clientes, cobertura e contexto financeiro para elevar a confiabilidade."
         datasetIds={["sales_orders", "customers", "raw_material_inventory", "finance_documents", "forecast_input"]}
       />
 
-      <section className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+      <section className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
         <MetricCard label="Demanda prevista total" value={formatNumber(totals?.final_forecast)} accent />
         <MetricCard label="Crescimento projetado" value={formatPercent(totals?.growth_impact_pct, 2)} />
         <MetricCard label="Receita estimada" value={formatCurrency(estimatedRevenue)} />
+        <MetricCard
+          label="Compra MP projetada"
+          value={formatNumber(totals?.projected_purchase_need_qty)}
+          sub={`${formatNumber(totals?.materials_with_purchase_need)} itens`}
+        />
         <MetricCard
           label="Grupo maior demanda"
           value={pickString(topGroup ?? {}, "product_group")}
@@ -1007,6 +1012,8 @@ export default function PlanningProductionPage() {
                     <th>Cobertura (dias)</th>
                     <th>MTS recomendado</th>
                     <th>MTU recomendado</th>
+                    <th>Nec. compra?</th>
+                    <th>Valor proj. U$</th>
                     <th>Politica sugerida</th>
                     <th>Risco</th>
                   </tr>
@@ -1020,6 +1027,8 @@ export default function PlanningProductionPage() {
                       <td className="text-right font-mono text-xs">{row.coverage_days != null ? formatNumber(row.coverage_days) : "-"}</td>
                       <td className="text-right font-mono text-xs">{formatNumber(row.mts_recommended_volume)}</td>
                       <td className="text-right font-mono text-xs">{formatNumber(row.mtu_recommended_volume)}</td>
+                      <td className="text-xs">{row.purchase_needed === true ? "Sim" : row.purchase_needed === false ? "Nao" : "-"}</td>
+                      <td className="text-right font-mono text-xs">{formatNumber(row.projected_purchase_value_usd)}</td>
                       <td className="text-xs">{pickString(row, "suggested_policy")}</td>
                       <td className="text-xs">{pickString(row, "risk_status")}</td>
                     </tr>
@@ -1219,3 +1228,4 @@ export default function PlanningProductionPage() {
     </PageTransition>
   );
 }
+

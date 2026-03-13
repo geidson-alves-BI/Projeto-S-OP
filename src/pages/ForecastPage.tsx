@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, TrendingUp } from "lucide-react";
+import { Download, Info, TrendingUp } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import MetricCard from "@/components/MetricCard";
 import PageTransition from "@/components/PageTransition";
 import MultiSelect from "@/components/MultiSelect";
@@ -16,11 +17,34 @@ import { getForecastResults } from "@/lib/api";
 import { parseForecastResults } from "@/lib/upload-center";
 import type { ForecastResult } from "@/types/analytics";
 
-function forecastProduct(product: ProductData, horizonMonths: number, growthPct: number) {
+type GrowthMode = "linear" | "compound_annualized";
+
+function growthModeLabel(mode: GrowthMode) {
+  if (mode === "compound_annualized") {
+    return "Composto anualizado";
+  }
+  return "Linear";
+}
+
+function forecastProduct(
+  product: ProductData,
+  horizonMonths: number,
+  growthPct: number,
+  growthMode: GrowthMode,
+) {
   const baseMonthly = product.mediaMensal;
   const growthFactor = 1 + growthPct / 100;
-  let total = 0;
 
+  if (growthMode === "linear") {
+    const baseTotal = baseMonthly * horizonMonths;
+    const adjustedTotal = baseTotal * growthFactor;
+    return {
+      totalForecast: Math.round(adjustedTotal),
+      dailyRate: Math.round(adjustedTotal / (horizonMonths * 30)),
+    };
+  }
+
+  let total = 0;
   for (let month = 1; month <= horizonMonths; month += 1) {
     total += baseMonthly * Math.pow(growthFactor, month / 12);
   }
@@ -36,6 +60,7 @@ export default function ForecastPage() {
   const { uploadCenter } = useUploadCenter(true);
   const [horizon, setHorizon] = useState("6");
   const [growthPct, setGrowthPct] = useState(0);
+  const [growthMode, setGrowthMode] = useState<GrowthMode>("linear");
   const [selectedSkus, setSelectedSkus] = useState<string[]>([]);
   const [filterABC, setFilterABC] = useState("Todos");
   const [backendForecast, setBackendForecast] = useState<ForecastResult[]>([]);
@@ -85,9 +110,9 @@ export default function ForecastPage() {
     const parsedHorizon = Number(horizon);
     return filteredProducts.map((product) => ({
       product,
-      forecast: forecastProduct(product, parsedHorizon, growthPct),
+      forecast: forecastProduct(product, parsedHorizon, growthPct, growthMode),
     }));
-  }, [filteredProducts, growthPct, horizon]);
+  }, [filteredProducts, growthPct, horizon, growthMode]);
 
   const totalForecastVol = forecastData.reduce((sum, row) => sum + row.forecast.totalForecast, 0);
 
@@ -98,6 +123,7 @@ export default function ForecastPage() {
       "ABC-XYZ",
       "Media Mensal (kg)",
       "Crescimento (%)",
+      "Modo de crescimento",
       "Horizonte (meses)",
       "Forecast Total (kg)",
       "Taxa Diaria (kg)",
@@ -107,6 +133,7 @@ export default function ForecastPage() {
       row.product.abcXyz,
       String(Math.round(row.product.mediaMensal)),
       String(growthPct),
+      growthModeLabel(growthMode),
       String(parsedHorizon),
       String(row.forecast.totalForecast),
       String(row.forecast.dailyRate),
@@ -147,7 +174,7 @@ export default function ForecastPage() {
       ) : (
         <>
           <div className="metric-card">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
               <div>
                 <label className="text-xs text-muted-foreground font-mono mb-1 block">Horizonte</label>
                 <Select value={horizon} onValueChange={setHorizon}>
@@ -163,6 +190,32 @@ export default function ForecastPage() {
               <div>
                 <label className="text-xs text-muted-foreground font-mono mb-1 block">Crescimento: {growthPct}%</label>
                 <Slider value={[growthPct]} onValueChange={(value) => setGrowthPct(value[0])} min={-30} max={50} step={1} />
+              </div>
+              <div>
+                <div className="mb-1 flex items-center gap-1">
+                  <label className="text-xs text-muted-foreground font-mono">Modo de crescimento</label>
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className="text-muted-foreground hover:text-foreground">
+                          <Info className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[280px] text-[11px] leading-5">
+                        Linear: aplica o crescimento diretamente sobre a previsao base.
+                        <br />
+                        Composto anualizado: distribui o crescimento ao longo do horizonte de meses.
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <Select value={growthMode} onValueChange={(value) => setGrowthMode(value as GrowthMode)}>
+                  <SelectTrigger className="font-mono text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="linear">Linear</SelectItem>
+                    <SelectItem value="compound_annualized">Composto anualizado</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <label className="text-xs text-muted-foreground font-mono mb-1 block">Filtro ABC</label>
@@ -186,8 +239,7 @@ export default function ForecastPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <MetricCard label="SKUs no Forecast" value={forecastData.length} />
             <MetricCard label="Vol. Total Forecast" value={`${totalForecastVol.toLocaleString()} kg`} sub={`${horizon} meses`} />
-            <MetricCard label="Crescimento Aplicado" value={`${growthPct}%`} />
-            <MetricCard label="Forecast backend" value={backendForecast.length} sub="registros consolidados" />
+            <MetricCard label="Crescimento Aplicado" value={`${growthPct}%`} sub={growthModeLabel(growthMode)} />
           </div>
 
           <div className="metric-card overflow-x-auto max-h-[500px] overflow-y-auto">
