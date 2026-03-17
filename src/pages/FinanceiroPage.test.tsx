@@ -169,6 +169,14 @@ describe("FinanceiroPage analytics v2", () => {
       error: null,
       refresh: refreshMock,
       hasAnyContent: true,
+      availability: {
+        state: "ready",
+        hasContent: true,
+        isPartial: false,
+        isEmpty: false,
+        hasError: false,
+        message: null,
+      },
     });
   });
 
@@ -179,7 +187,7 @@ describe("FinanceiroPage analytics v2", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Fonte principal unica: analytics v2 (snapshot + metrics + cenarios). Nenhum KPI desta tela e calculado no frontend.")).toBeInTheDocument();
+    expect(screen.getByText("Fonte principal unica: camada analitica oficial (resumo, metricas e cenarios). Nenhum KPI desta tela e calculado no frontend.")).toBeInTheDocument();
     expect(screen.getByText("Receita projetada")).toBeInTheDocument();
     expect(screen.getAllByText("R$ 110.000,00").length).toBeGreaterThan(0);
     expect(screen.getByText("Base / Conservador / Agressivo")).toBeInTheDocument();
@@ -205,6 +213,14 @@ describe("FinanceiroPage analytics v2", () => {
       error: null,
       refresh: refreshMock,
       hasAnyContent: true,
+      availability: {
+        state: "partial",
+        hasContent: true,
+        isPartial: true,
+        isEmpty: false,
+        hasError: false,
+        message: "Atualizacao parcial da analise.",
+      },
     });
 
     render(
@@ -228,6 +244,14 @@ describe("FinanceiroPage analytics v2", () => {
       error: "metrics_compute timeout",
       refresh: refreshMock,
       hasAnyContent: true,
+      availability: {
+        state: "partial",
+        hasContent: true,
+        isPartial: true,
+        isEmpty: false,
+        hasError: true,
+        message: "metrics_compute timeout",
+      },
     });
 
     render(
@@ -238,5 +262,20 @@ describe("FinanceiroPage analytics v2", () => {
 
     expect(screen.getByText("Atualizacao parcial: metrics_compute timeout")).toBeInTheDocument();
     expect(screen.getByText("Receita projetada")).toBeInTheDocument();
+  });
+
+  it("does not expose internal technical wording in visible copy", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <FinanceiroPage />
+      </MemoryRouter>,
+    );
+
+    const text = container.textContent?.toLowerCase() ?? "";
+    expect(text).not.toContain(" v2");
+    expect(text).not.toContain("engine");
+    expect(text).not.toContain("registry");
+    expect(text).not.toContain("snapshot");
+    expect(text).not.toContain("compute");
   });
 });

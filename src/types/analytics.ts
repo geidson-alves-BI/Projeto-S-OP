@@ -324,6 +324,70 @@ export type AppDataSnapshot = {
   };
 };
 
+export type AbcXyzAnalysisStatus = "ready" | "partial" | "unavailable";
+
+export type AbcXyzAnalysisProduct = {
+  sku: string;
+  sku_label: string;
+  descricao: string;
+  month_values: Record<string, number>;
+  volume_anual: number;
+  media_mensal: number;
+  desvio_padrao: number;
+  cv: number;
+  percentual_acumulado: number;
+  classe_abc: "A" | "B" | "C";
+  classe_xyz: "X" | "Y" | "Z";
+  classe_combinada: string;
+  tendencia_percentual: number | null;
+  tendencia: string;
+  consumo_diario: number;
+  dias_alvo: number;
+  estrategia: string;
+  prioridade: number;
+  top1_cliente: string;
+  top1_share: number;
+  hhi_cliente: number;
+  meses_ativos: number;
+};
+
+export type AbcXyzAnalysisResponse = {
+  status: AbcXyzAnalysisStatus;
+  generated_at: string;
+  base_utilizada: string[];
+  abrangencia_analise: {
+    escopo: string;
+    periodo_inicial: string | null;
+    periodo_final: string | null;
+    meses_considerados: number;
+    total_skus: number;
+    linhas_producao: number;
+  };
+  confiabilidade: {
+    nivel: "alta" | "media" | "baixa";
+    score: number;
+    justificativas: string[];
+  };
+  limitacoes: string[];
+  criterio_classificacao: {
+    abc: string;
+    xyz: string;
+    combinada: string;
+  };
+  indicadores_resumidos: {
+    total_skus: number;
+    volume_total: number;
+    classes_abc: Record<"A" | "B" | "C", number>;
+    classes_xyz: Record<"X" | "Y" | "Z", number>;
+    matriz_abc_xyz: Record<string, number>;
+    concentracao_top10_percent: number;
+    participacao_z_percent: number;
+    priorizacao_executiva: string[];
+  };
+  clientes_disponiveis: string[];
+  produtos: AbcXyzAnalysisProduct[];
+};
+
 export type StructuredUploadRegistrationRequest = {
   dataset_id: Extract<UploadDatasetAliasKey, "production" | "customers" | "clients" | "raw_material_inventory">;
   filename: string;

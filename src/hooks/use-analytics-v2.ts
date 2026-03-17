@@ -4,6 +4,7 @@ import {
   getAnalyticsV2FinancialScenarios,
   getAnalyticsV2Snapshot,
 } from "@/lib/api";
+import { buildAnalyticsAvailability, normalizeAnalyticsError } from "@/lib/analytics-consumption";
 import type {
   AnalyticsV2FinancialScenariosResponse,
   AnalyticsV2MetricContract,
@@ -67,7 +68,7 @@ export function useAnalyticsV2(options: UseAnalyticsV2Options = {}) {
         setSnapshot(snapshotResult.value);
         hasAnySuccess = true;
       } else {
-        failures.push(`snapshot: ${String(snapshotResult.reason)}`);
+        failures.push(`resumo_geral: ${normalizeAnalyticsError(snapshotResult.reason)}`);
       }
 
       if (scenariosResult.status === "fulfilled") {
@@ -75,7 +76,7 @@ export function useAnalyticsV2(options: UseAnalyticsV2Options = {}) {
         setFinancialScenarios(scenariosResult.value);
         hasAnySuccess = true;
       } else {
-        failures.push(`financial_scenarios: ${String(scenariosResult.reason)}`);
+        failures.push(`cenarios_financeiros: ${normalizeAnalyticsError(scenariosResult.reason)}`);
       }
 
       if (metricsResultRequest.status === "fulfilled") {
@@ -83,14 +84,14 @@ export function useAnalyticsV2(options: UseAnalyticsV2Options = {}) {
         setMetricsResult(metricsResultRequest.value);
         hasAnySuccess = true;
       } else {
-        failures.push(`metrics_compute: ${String(metricsResultRequest.reason)}`);
+        failures.push(`metricas: ${normalizeAnalyticsError(metricsResultRequest.reason)}`);
       }
 
       if (failures.length > 0) {
         setError(
           hasAnySuccess
-            ? `Camada v2 parcial: ${failures.join(" | ")}`
-            : `Camada v2 indisponivel: ${failures.join(" | ")}`,
+            ? `Atualizacao parcial da analise: ${failures.join(" | ")}`
+            : `Analise indisponivel: ${failures.join(" | ")}`,
         );
       } else {
         setError(null);
@@ -105,7 +106,7 @@ export function useAnalyticsV2(options: UseAnalyticsV2Options = {}) {
         metricsResult: nextMetrics,
       };
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : String(requestError));
+      setError(normalizeAnalyticsError(requestError));
       return null;
     } finally {
       setLoading(false);
@@ -119,7 +120,7 @@ export function useAnalyticsV2(options: UseAnalyticsV2Options = {}) {
     void refresh();
   }, [autoLoad, refresh, metricKey, scope]);
 
-  const metrics = metricsResult?.metrics ?? [];
+  const metrics = useMemo(() => metricsResult?.metrics ?? [], [metricsResult]);
   const metricsById = useMemo(() => {
     const entries: Record<string, AnalyticsV2MetricContract> = {};
     metrics.forEach((metric) => {
@@ -137,6 +138,18 @@ export function useAnalyticsV2(options: UseAnalyticsV2Options = {}) {
     snapshot?.readiness_v2.overall_status === "partial" ||
     metrics.some((metric) => metric.status === "partial");
   const isEmptyState = !loading && !error && !hasCalculableMetrics && !hasScenarios;
+  const availability = buildAnalyticsAvailability({
+    loading,
+    error,
+    hasContent: hasAnyContent,
+    isPartial: isPartialState,
+    isEmpty: isEmptyState,
+    messages: {
+      partial: "Atualizacao parcial da analise. Alguns blocos podem estar incompletos.",
+      unavailable: "Analise indisponivel no momento. Tente atualizar ou revise as bases.",
+      empty: "Nenhum indicador foi liberado para o recorte atual.",
+    },
+  });
 
   return {
     snapshot,
@@ -152,6 +165,7 @@ export function useAnalyticsV2(options: UseAnalyticsV2Options = {}) {
     hasAnyContent,
     isPartialState,
     isEmptyState,
+    availability,
     metricIds,
   };
 }

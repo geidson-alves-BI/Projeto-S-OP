@@ -7,6 +7,7 @@ from typing import Any, Callable
 import pandas as pd
 
 from ..memory_store import analytics_store
+from .abc_xyz_rules import classify_xyz
 from .dataset_registry import get_dataset_registry_payload
 from .financial_scenarios import (
     build_financial_scenarios,
@@ -14,6 +15,8 @@ from .financial_scenarios import (
 )
 from .metric_contract import build_metric_contract
 from .metric_registry import get_metric_registry_payload
+from .normalizers import safe_text as _safe_text
+from .normalizers import to_number as _to_number
 from .status import STATUS_PARTIAL, STATUS_READY, STATUS_UNAVAILABLE, normalize_status
 
 
@@ -21,35 +24,8 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _safe_text(value: Any) -> str:
-    return str(value or "").strip()
-
-
 def _normalize_text(value: Any) -> str:
     return " ".join(_safe_text(value).lower().split())
-
-
-def _to_number(value: Any) -> float:
-    if isinstance(value, bool):
-        return float(value)
-    if isinstance(value, (int, float)):
-        parsed = float(value)
-        return parsed if parsed == parsed else 0.0
-    raw = _safe_text(value)
-    if not raw:
-        return 0.0
-    cleaned = raw.replace(" ", "")
-    if "," in cleaned and "." in cleaned:
-        if cleaned.rfind(",") > cleaned.rfind("."):
-            cleaned = cleaned.replace(".", "").replace(",", ".")
-        else:
-            cleaned = cleaned.replace(",", "")
-    elif "," in cleaned:
-        cleaned = cleaned.replace(",", ".")
-    try:
-        return float(cleaned)
-    except ValueError:
-        return 0.0
 
 
 def _safe_list(value: Any) -> list[Any]:
@@ -1529,9 +1505,7 @@ class AnalyticsEngineV2:
             lambda row: float(row["std"]) / float(row["mean"]) if float(row["mean"]) > 0 else 0.0,
             axis=1,
         )
-        product_stats["xyz_class"] = product_stats["cv"].apply(
-            lambda value: "Z" if value > 1.0 else "Y" if value > 0.5 else "X"
-        )
+        product_stats["xyz_class"] = product_stats["cv"].apply(lambda value: classify_xyz(float(value)))
         total_products = len(product_stats)
         z_count = int((product_stats["xyz_class"] == "Z").sum())
         z_share = float((z_count / total_products) * 100.0) if total_products > 0 else 0.0

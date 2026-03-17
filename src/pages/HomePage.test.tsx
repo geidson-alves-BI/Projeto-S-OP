@@ -155,6 +155,14 @@ describe("HomePage analytics v2 pilot", () => {
       hasAnyContent: true,
       isPartialState: true,
       isEmptyState: false,
+      availability: {
+        state: "partial",
+        hasContent: true,
+        isPartial: true,
+        isEmpty: false,
+        hasError: false,
+        message: null,
+      },
     });
   });
 
@@ -170,6 +178,14 @@ describe("HomePage analytics v2 pilot", () => {
       hasAnyContent: false,
       isPartialState: false,
       isEmptyState: false,
+      availability: {
+        state: "loading",
+        hasContent: false,
+        isPartial: false,
+        isEmpty: false,
+        hasError: false,
+        message: null,
+      },
     });
 
     render(
@@ -178,8 +194,8 @@ describe("HomePage analytics v2 pilot", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Carregando snapshot v2...")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Atualizar v2" })).toBeDisabled();
+    expect(screen.getByText("Carregando resumo da analise...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Atualizar analise" })).toBeDisabled();
   });
 
   it("renders partial snapshot summary", () => {
@@ -189,8 +205,8 @@ describe("HomePage analytics v2 pilot", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Snapshot v2 do ciclo atual")).toBeInTheDocument();
-    expect(screen.getByText("6 de 8 metricas calculaveis na camada v2.")).toBeInTheDocument();
+    expect(screen.getByText("Resumo do ciclo atual")).toBeInTheDocument();
+    expect(screen.getByText("6 de 8 metricas calculaveis na camada principal.")).toBeInTheDocument();
     expect(screen.getByText("75% de cobertura")).toBeInTheDocument();
   });
 
@@ -243,6 +259,14 @@ describe("HomePage analytics v2 pilot", () => {
       hasAnyContent: true,
       isPartialState: false,
       isEmptyState: true,
+      availability: {
+        state: "empty",
+        hasContent: true,
+        isPartial: false,
+        isEmpty: true,
+        hasError: false,
+        message: "Nenhum indicador foi liberado para o recorte atual.",
+      },
     });
 
     render(
@@ -266,6 +290,14 @@ describe("HomePage analytics v2 pilot", () => {
       hasAnyContent: false,
       isPartialState: false,
       isEmptyState: false,
+      availability: {
+        state: "unavailable",
+        hasContent: false,
+        isPartial: false,
+        isEmpty: false,
+        hasError: true,
+        message: "Analise indisponivel: backend offline",
+      },
     });
 
     render(
@@ -274,7 +306,7 @@ describe("HomePage analytics v2 pilot", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Camada analytics v2 indisponivel no momento")).toBeInTheDocument();
+    expect(screen.getByText("Analise indisponivel no momento")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Upload center" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "IA executiva" })).toBeInTheDocument();
   });
@@ -286,7 +318,22 @@ describe("HomePage analytics v2 pilot", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Atualizar v2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar analise" }));
     expect(refreshMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not expose internal technical wording in visible copy", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>,
+    );
+
+    const text = container.textContent?.toLowerCase() ?? "";
+    expect(text).not.toContain(" v2");
+    expect(text).not.toContain("engine");
+    expect(text).not.toContain("registry");
+    expect(text).not.toContain("snapshot");
+    expect(text).not.toContain("compute");
   });
 });

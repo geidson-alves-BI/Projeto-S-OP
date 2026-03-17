@@ -1,19 +1,7 @@
 import pandas as pd
+
+from .analytics_v2.abc_xyz_rules import classify_abc, classify_xyz
 from .utils import safe_div
-
-def classify_abc(cum_share):
-    if cum_share <= 0.80:
-        return "A"
-    if cum_share <= 0.95:
-        return "B"
-    return "C"
-
-def classify_xyz(cv):
-    if cv <= 0.5:
-        return "X"
-    if cv <= 1.0:
-        return "Y"
-    return "Z"
 
 def compute_abcxyz(df: pd.DataFrame, sku_col: str, qty_col: str, cost_col: str):
     d = df.copy()

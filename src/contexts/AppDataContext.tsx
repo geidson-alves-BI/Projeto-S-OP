@@ -25,10 +25,15 @@ export interface AppState {
   hasClientes: boolean;
 }
 
+export type HydrationStatus = "idle" | "loading" | "success" | "error";
+
 interface AppDataContextType {
   state: AppState | null;
   loading: boolean;
   error: string | null;
+  hydrationStatus: HydrationStatus;
+  hydrationError: string | null;
+  lastHydratedAt: string | null;
   fileProd: File | null;
   fileCli: File | null;
   setFileProd: (f: File | null) => void;
@@ -82,8 +87,11 @@ export function useAppData() {
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const [fileProd, setFileProd] = useState<File | null>(null);
   const [fileCli, setFileCli] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hydrationStatus, setHydrationStatus] = useState<HydrationStatus>("loading");
+  const [hydrationError, setHydrationError] = useState<string | null>(null);
+  const [lastHydratedAt, setLastHydratedAt] = useState<string | null>(null);
   const [state, setState] = useState<AppState | null>(null);
   const [rmData, setRMData] = useState<RMData[] | null>(null);
   const [productionSourceRows, setProductionSourceRows] = useState<RawRow[] | null>(null);
@@ -161,6 +169,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       const rawProd = await parseFile(file);
       setProductionSourceRows(rawProd);
       const summary = rebuildState(rawProd, clientSourceRows);
+      setHydrationStatus("success");
+      setHydrationError(null);
+      setLastHydratedAt(new Date().toISOString());
       setLastFGImportAt(new Date().toISOString());
       return {
         rowCount: rawProd.length,
@@ -188,6 +199,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         const summary = rebuildState(productionSourceRows, rawCli);
         linkedProducts = summary.productsCount;
       }
+      setHydrationStatus("success");
+      setHydrationError(null);
+      setLastHydratedAt(new Date().toISOString());
       setLastClientesImportAt(new Date().toISOString());
       return {
         rowCount: rawCli.length,
@@ -222,6 +236,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         const parsed = processRM(raw, validation.rename);
         setRMData(parsed);
         setLastRMImportAt(new Date().toISOString());
+        setHydrationStatus("success");
+        setHydrationError(null);
+        setLastHydratedAt(new Date().toISOString());
         parsedRows = parsed.length;
       }
 
@@ -243,6 +260,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
       setError(null);
+      setHydrationError(null);
+      setHydrationStatus("loading");
       const snapshot = await getAppDataSnapshot();
       const hydrated = hydrateAppDataFromSnapshot(snapshot);
       setState(hydrated.state);
@@ -251,10 +270,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       setLastClientesImportAt(hydrated.lastClientesImportAt);
       setLastRMImportAt(hydrated.lastRMImportAt);
       setHydratedFromBackend(true);
+      setHydrationStatus("success");
+      setLastHydratedAt(new Date().toISOString());
       return true;
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : String(requestError);
       setError(message);
+      setHydrationError(message);
+      setHydrationStatus("error");
       return false;
     } finally {
       setLoading(false);
@@ -276,6 +299,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       setProductionSourceRows(rawProd);
       setClientSourceRows(rawCli);
       rebuildState(rawProd, rawCli);
+      setHydrationStatus("success");
+      setHydrationError(null);
+      setLastHydratedAt(new Date().toISOString());
 
       setLastFGImportAt(new Date().toISOString());
       setLastClientesImportAt(rawCli && rawCli.length > 0 ? new Date().toISOString() : null);
@@ -304,6 +330,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       void hydrateFromBackend();
       return;
     }
+    setHydrationStatus("idle");
+    setHydrationError(null);
+    setLastHydratedAt(null);
+    setLoading(false);
     setState(null);
     setRMData(null);
     setLastFGImportAt(null);
@@ -320,7 +350,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   return (
     <AppDataContext.Provider value={{
-      state, loading, error, fileProd, fileCli,
+      state, loading, error, hydrationStatus, hydrationError, lastHydratedAt, fileProd, fileCli,
       setFileProd, setFileCli, handleLoad, reset,
       hydrateFromBackend,
       loadProductionFile, loadClientsFile, loadRawMaterialFile,

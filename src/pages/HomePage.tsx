@@ -11,13 +11,13 @@ import {
   Sparkles,
 } from "lucide-react";
 import PageTransition from "@/components/PageTransition";
+import { AnalyticsStatusBadge } from "@/components/analytics/AnalyticsStatusBadge";
 import { Button } from "@/components/ui/button";
 import { useAnalyticsV2 } from "@/hooks/use-analytics-v2";
+import { sanitizeProductCopy } from "@/lib/analytics-consumption";
 import {
   analyticsV2ConfidenceLabel,
   analyticsV2EstimateTypeLabel,
-  ANALYTICS_V2_STATUS_BADGE_CLASS,
-  ANALYTICS_V2_STATUS_LABEL,
   getMainAnalyticsV2Limitation,
   summarizeAnalyticsV2Base,
 } from "@/lib/analytics-v2-presenters";
@@ -33,7 +33,7 @@ type PilotMetricDefinition = {
   guidance: string;
 };
 
-const PILOT_KPIS: PilotMetricDefinition[] = [
+const EXECUTIVE_KPIS: PilotMetricDefinition[] = [
   {
     metricId: "production_volume",
     title: "Volume de producao",
@@ -71,16 +71,6 @@ const PILOT_KPIS: PilotMetricDefinition[] = [
   },
 ];
 
-function StatusPill({ status }: { status: AnalyticsV2Status }) {
-  return (
-    <span
-      className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-mono uppercase tracking-[0.24em] ${ANALYTICS_V2_STATUS_BADGE_CLASS[status]}`}
-    >
-      {ANALYTICS_V2_STATUS_LABEL[status]}
-    </span>
-  );
-}
-
 function MetricPilotCard({
   title,
   guidance,
@@ -100,7 +90,7 @@ function MetricPilotCard({
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">KPI executivo</p>
           <h3 className="text-base font-semibold text-foreground">{title}</h3>
         </div>
-        <StatusPill status={status} />
+        <AnalyticsStatusBadge status={status} />
       </div>
 
       <p className="mt-3 text-2xl font-semibold text-foreground">
@@ -114,15 +104,15 @@ function MetricPilotCard({
           {metric ? analyticsV2ConfidenceLabel(metric.confianca) : "Nao informada"}
         </p>
         <p>
-          <span className="text-muted-foreground">Decision grade:</span>{" "}
+          <span className="text-muted-foreground">Qualidade para decisao:</span>{" "}
           {metric?.decision_grade ?? "-"}
         </p>
         <p>
-          <span className="text-muted-foreground">Base usada:</span>{" "}
+          <span className="text-muted-foreground">Base utilizada:</span>{" "}
           {metric ? summarizeAnalyticsV2Base(metric.base_usada) : "Sem base"}
         </p>
         <p>
-          <span className="text-muted-foreground">Estimate type:</span>{" "}
+          <span className="text-muted-foreground">Origem do calculo:</span>{" "}
           {metric ? analyticsV2EstimateTypeLabel(metric.estimate_type) : "-"}
         </p>
         <p className="text-warning">{getMainAnalyticsV2Limitation(metric)}</p>
@@ -140,11 +130,11 @@ function MetricPilotCard({
               <span className="text-foreground">Escopo:</span> {metric.escopo}
             </p>
             <p>
-              <span className="text-foreground">Missing data:</span>{" "}
+              <span className="text-foreground">Lacunas de base:</span>{" "}
               {metric.missing_data.length ? metric.missing_data.join(", ") : "nenhum"}
             </p>
             <p>
-              <span className="text-foreground">Calculation method:</span> {metric.calculation_method}
+              <span className="text-foreground">Criterio de calculo:</span> {metric.calculation_method}
             </p>
           </div>
         </details>
@@ -166,7 +156,7 @@ function ScenarioCard({
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Cenario</p>
           <h3 className="text-lg font-semibold text-foreground">{scenario.display_name}</h3>
         </div>
-        <StatusPill status={scenario.status} />
+        <AnalyticsStatusBadge status={scenario.status} />
       </div>
 
       <div className="mt-3 space-y-1 text-xs text-foreground">
@@ -175,7 +165,7 @@ function ScenarioCard({
           {analyticsV2ConfidenceLabel(scenario.confianca)}
         </p>
         <p>
-          <span className="text-muted-foreground">Decision grade:</span> {scenario.decision_grade}
+          <span className="text-muted-foreground">Qualidade para decisao:</span> {scenario.decision_grade}
         </p>
       </div>
 
@@ -204,11 +194,11 @@ function ScenarioCard({
 
       <div className="mt-4 text-xs text-foreground">
         <p>
-          <span className="text-muted-foreground">Estimate type (margem):</span>{" "}
+          <span className="text-muted-foreground">Origem do calculo (margem):</span>{" "}
           {analyticsV2EstimateTypeLabel(scenario.contribution_margin.estimate_type)}
         </p>
         <p>
-          <span className="text-muted-foreground">Base usada:</span> {summarizeAnalyticsV2Base(scenario.base_usada)}
+          <span className="text-muted-foreground">Base utilizada:</span> {summarizeAnalyticsV2Base(scenario.base_usada)}
         </p>
         <p className="mt-2 text-warning">
           {scenario.limitations[0] ?? "Sem limitacao critica para este cenario."}
@@ -219,31 +209,31 @@ function ScenarioCard({
         <summary className="cursor-pointer font-medium text-foreground">Premissas e rastreabilidade</summary>
         <div className="mt-2 space-y-1 leading-5">
           <p>
-            <span className="text-foreground">Revenue factor:</span>{" "}
+            <span className="text-foreground">Fator de receita:</span>{" "}
             {String(scenario.assumptions.revenue_factor ?? "-")}
           </p>
           <p>
-            <span className="text-foreground">Demand factor:</span>{" "}
+            <span className="text-foreground">Fator de demanda:</span>{" "}
             {String(scenario.assumptions.demand_factor ?? "-")}
           </p>
           <p>
-            <span className="text-foreground">Inventory coverage factor:</span>{" "}
+            <span className="text-foreground">Fator de cobertura de estoque:</span>{" "}
             {String(scenario.assumptions.inventory_coverage_factor ?? "-")}
           </p>
           <p>
-            <span className="text-foreground">Carrying cost rate:</span>{" "}
+            <span className="text-foreground">Taxa de carregamento:</span>{" "}
             {String(scenario.assumptions.carrying_cost_rate ?? "-")}
           </p>
           <p>
-            <span className="text-foreground">Safety factor:</span>{" "}
+            <span className="text-foreground">Fator de seguranca:</span>{" "}
             {String(scenario.assumptions.safety_factor ?? "-")}
           </p>
           <p>
-            <span className="text-foreground">Missing data:</span>{" "}
+            <span className="text-foreground">Lacunas de base:</span>{" "}
             {scenario.missing_data.length ? scenario.missing_data.join(", ") : "nenhum"}
           </p>
           <p>
-            <span className="text-foreground">Calculation method:</span> {scenario.calculation_method}
+            <span className="text-foreground">Criterio de calculo:</span> {scenario.calculation_method}
           </p>
         </div>
       </details>
@@ -257,12 +247,10 @@ export default function HomePage() {
     financialScenarios,
     metricsById,
     loading,
-    error,
     refresh,
-    hasCalculableMetrics,
     hasAnyContent,
-    isPartialState,
     isEmptyState,
+    availability,
   } = useAnalyticsV2();
 
   const scenarios = financialScenarios?.scenarios ?? [];
@@ -270,14 +258,14 @@ export default function HomePage() {
   const calculableCount = snapshot?.metricas_calculaveis.length ?? 0;
   const blockedCount = snapshot?.metricas_bloqueadas.length ?? 0;
   const summaryLines = snapshot?.resumo_executivo ?? [];
+  const sanitizedSummaryLines = summaryLines.map((line) => sanitizeProductCopy(line));
 
-  const heroStatus: AnalyticsV2Status = loading
-    ? "partial"
-    : error && !hasAnyContent
+  const heroStatus: AnalyticsV2Status =
+    availability.state === "unavailable"
       ? "unavailable"
-      : isPartialState
-        ? "partial"
-        : "ready";
+      : availability.state === "ready"
+        ? "ready"
+        : "partial";
 
   return (
     <PageTransition className="p-6 space-y-6">
@@ -293,14 +281,14 @@ export default function HomePage() {
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="space-y-3">
               <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] font-mono uppercase tracking-[0.28em] text-primary">
-                Home piloto analytics v2
+                Visao executiva
               </span>
               <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-foreground">
-                Resumo executivo conectado ao backend v2
+                Resumo executivo das analises
               </h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                A Home agora consome snapshot, KPIs e cenarios financeiros diretamente da camada analytics v2.
-                Nao ha calculo analitico local nesta tela piloto.
+                A Home consolida indicadores e cenarios financeiros diretamente da camada analitica oficial.
+                Nenhum calculo novo e feito localmente nesta tela.
               </p>
             </div>
 
@@ -314,7 +302,7 @@ export default function HomePage() {
                 disabled={loading}
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                Atualizar v2
+                Atualizar analise
               </Button>
               <Button asChild className="gap-2">
                 <Link to="/upload">
@@ -333,9 +321,9 @@ export default function HomePage() {
 
           <div className="grid gap-3 lg:grid-cols-4">
             <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Status da camada v2</p>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Status da analise</p>
               <div className="mt-2">
-                <StatusPill status={heroStatus} />
+                <AnalyticsStatusBadge status={heroStatus} />
               </div>
             </div>
             <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
@@ -347,42 +335,43 @@ export default function HomePage() {
               <p className="mt-2 text-2xl font-semibold text-foreground">{blockedCount}</p>
             </div>
             <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Readiness v2</p>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Cobertura da analise</p>
               <p className="mt-2 text-sm text-foreground">
                 {snapshot
                   ? `${snapshot.readiness_v2.coverage_percent}% de cobertura`
                   : loading
                     ? "Carregando..."
-                    : "Aguardando camada analitica"}
+                    : "Aguardando dados da analise"}
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {error && !hasAnyContent && (
+      {availability.state === "unavailable" && availability.message && (
         <section className="rounded-2xl border border-destructive/35 bg-destructive/10 p-5">
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />
             <div className="space-y-2">
               <h2 className="text-lg font-semibold text-foreground">
-                Camada analytics v2 indisponivel no momento
+                Analise indisponivel no momento
               </h2>
               <p className="text-sm text-muted-foreground">
                 A navegacao continua funcional. Tente atualizar novamente ou siga para Upload para validar as bases.
               </p>
-              <p className="text-xs text-destructive">{error}</p>
+              <p className="text-xs text-destructive">{sanitizeProductCopy(availability.message)}</p>
             </div>
           </div>
         </section>
       )}
 
-      {error && hasAnyContent && (
+      {availability.state === "partial" && availability.message && hasAnyContent && (
         <section className="rounded-2xl border border-warning/35 bg-warning/10 p-4 text-sm text-foreground">
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 text-warning" />
             <p>
-              Atualizacao parcial da camada v2. Alguns blocos podem estar incompletos neste refresh: {error}
+              Atualizacao parcial da analise. Alguns blocos podem estar incompletos neste momento:{" "}
+              {sanitizeProductCopy(availability.message)}
             </p>
           </div>
         </section>
@@ -393,7 +382,7 @@ export default function HomePage() {
           <Database className="h-4 w-4 text-primary" />
           <div>
             <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Resumo analitico</p>
-            <h2 className="text-xl font-semibold text-foreground">Snapshot v2 do ciclo atual</h2>
+            <h2 className="text-xl font-semibold text-foreground">Resumo do ciclo atual</h2>
           </div>
         </div>
 
@@ -415,7 +404,7 @@ export default function HomePage() {
               <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Status geral</p>
                 <div className="mt-2">
-                  <StatusPill status={snapshot.readiness_v2.overall_status} />
+                  <AnalyticsStatusBadge status={snapshot.readiness_v2.overall_status} />
                 </div>
               </div>
             </div>
@@ -423,10 +412,10 @@ export default function HomePage() {
             <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
               <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Resumo executivo</p>
               <div className="mt-3 space-y-2 text-sm leading-6 text-foreground">
-                {summaryLines.length > 0 ? (
-                  summaryLines.map((line) => <p key={line}>{line}</p>)
+                {sanitizedSummaryLines.length > 0 ? (
+                  sanitizedSummaryLines.map((line) => <p key={line}>{line}</p>)
                 ) : (
-                  <p>Nenhum resumo textual retornado no snapshot.</p>
+                  <p>Nenhum resumo textual foi retornado para o ciclo atual.</p>
                 )}
               </div>
             </div>
@@ -434,8 +423,8 @@ export default function HomePage() {
         ) : (
           <div className="mt-4 rounded-2xl border border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground">
             {loading
-              ? "Carregando snapshot v2..."
-              : "Snapshot v2 ainda nao retornado. A Home segue funcional para navegacao."}
+              ? "Carregando resumo da analise..."
+              : "Resumo ainda indisponivel. A Home segue funcional para navegacao."}
           </div>
         )}
       </section>
@@ -445,7 +434,7 @@ export default function HomePage() {
           <LineChart className="h-4 w-4 text-primary" />
           <div>
             <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">KPIs executivos</p>
-            <h2 className="text-xl font-semibold text-foreground">Leitura v2 sem calculo local</h2>
+            <h2 className="text-xl font-semibold text-foreground">Leitura oficial sem calculo local</h2>
           </div>
         </div>
 
@@ -455,7 +444,7 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {PILOT_KPIS.map((definition) => (
+            {EXECUTIVE_KPIS.map((definition) => (
               <MetricPilotCard
                 key={definition.metricId}
                 title={definition.title}
@@ -486,7 +475,7 @@ export default function HomePage() {
         ) : (
           <div className="mt-4 rounded-2xl border border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground">
             {loading
-              ? "Carregando cenarios financeiros v2..."
+              ? "Carregando cenarios financeiros..."
               : "Cenarios financeiros ainda indisponiveis para o recorte atual."}
           </div>
         )}
@@ -502,16 +491,17 @@ export default function HomePage() {
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <div className="rounded-2xl border border-border/70 bg-muted/20 p-4 text-sm text-foreground">
-            <p className="font-medium">Legenda de estimate type</p>
+            <p className="font-medium">Origem do calculo</p>
             <p className="mt-2 text-muted-foreground">
-              `Documented` usa dado documental direto, `Hybrid` combina fonte documental e estimativa, `Estimated`
-              usa fallback heuristico explicitado.
+              Documentado usa base estruturada direta, Combinado mistura base estruturada com estimativas e
+              Estimado indica calculo por aproximacao declarada.
             </p>
           </div>
           <div className="rounded-2xl border border-border/70 bg-muted/20 p-4 text-sm text-foreground">
-            <p className="font-medium">Convivencia com camada legada</p>
+            <p className="font-medium">Evolucao gradual das telas</p>
             <p className="mt-2 text-muted-foreground">
-              A Home esta em piloto v2. Outras paginas seguem fluxo legado ate a migracao progressiva da ETAPA 5.
+              A Home ja opera na camada analitica padronizada e as proximas migracoes podem reutilizar o mesmo
+              modelo de consumo.
             </p>
           </div>
         </div>
@@ -526,7 +516,7 @@ export default function HomePage() {
             </div>
             <h2 className="text-2xl font-semibold tracking-tight text-foreground">Navegacao executiva continua ativa</h2>
             <p className="text-sm leading-6 text-muted-foreground">
-              Mesmo com falha eventual da camada v2, o restante da aplicacao permanece operacional.
+              Mesmo com falha eventual da analise, o restante da aplicacao permanece operacional.
             </p>
           </div>
 

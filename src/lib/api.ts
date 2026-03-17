@@ -1,6 +1,7 @@
 import type {
   AIIntegrationConfigRequest,
   AIIntegrationConfigResponse,
+  AbcXyzAnalysisResponse,
   AppDataSnapshot,
   AnalyticsDataStatus,
   AIInterpretRequest,
@@ -231,6 +232,10 @@ export async function getUploadCenter() {
 
 export async function getAppDataSnapshot() {
   return getJSON<AppDataSnapshot>("/analytics/app_data_snapshot");
+}
+
+export async function getAbcXyzAnalysis() {
+  return getJSON<AbcXyzAnalysisResponse>("/analytics/abc_xyz");
 }
 
 

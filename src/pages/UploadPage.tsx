@@ -172,6 +172,13 @@ export default function UploadPage() {
     }
   };
 
+  const buildHydrationFeedback = (
+    uploadMessage: string,
+  ): UploadFeedback => ({
+    tone: "error",
+    message: `${uploadMessage} Upload concluido, mas a sincronizacao pos-upload falhou. A analise permanece bloqueada ate a sincronizacao ser concluida.`,
+  });
+
   const handleProductionUpload = async () => {
     if (!productionFile) {
       return;
@@ -186,11 +193,15 @@ export default function UploadPage() {
         };
       }
 
-      await hydrateFromBackend();
+      const hydrationOk = await hydrateFromBackend();
       setProductionFile(null);
+      const uploadMessage = `${response.validation.row_count} linhas validadas para Base Operacional.`;
+      if (!hydrationOk) {
+        return buildHydrationFeedback(uploadMessage);
+      }
       return {
         tone: "success",
-        message: `${response.validation.row_count} linhas validadas e sincronizadas para Base Operacional.`,
+        message: `${uploadMessage} Sincronizacao concluida com sucesso.`,
       };
     });
   };
@@ -229,11 +240,15 @@ export default function UploadPage() {
         };
       }
 
-      await hydrateFromBackend();
+      const hydrationOk = await hydrateFromBackend();
       setCustomersFile(null);
+      const uploadMessage = "Base de clientes validada para cruzamentos comerciais.";
+      if (!hydrationOk) {
+        return buildHydrationFeedback(uploadMessage);
+      }
       return {
         tone: "success",
-        message: "Clientes sincronizados com a Base Operacional consolidada no backend.",
+        message: `${uploadMessage} Sincronizacao concluida com sucesso.`,
       };
     });
   };
@@ -292,11 +307,15 @@ export default function UploadPage() {
         };
       }
 
-      await hydrateFromBackend();
+      const hydrationOk = await hydrateFromBackend();
       setRawMaterialFile(null);
+      const uploadMessage = `${response.validation.row_count} linhas de materia-prima validadas para cobertura e risco.`;
+      if (!hydrationOk) {
+        return buildHydrationFeedback(uploadMessage);
+      }
       return {
         tone: "success",
-        message: `${response.validation.row_count} linhas de materia-prima sincronizadas para cobertura e risco.`,
+        message: `${uploadMessage} Sincronizacao concluida com sucesso.`,
       };
     });
   };
@@ -832,10 +851,10 @@ export default function UploadPage() {
                 </article>
 
                 <article className="space-y-4 rounded-2xl border border-border/60 bg-background/45 p-4">
-                  <h3 className="text-base font-semibold text-foreground">Registry oficial</h3>
+                  <h3 className="text-base font-semibold text-foreground">Cadastro oficial de contratos</h3>
                   <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
                     <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-                      Versao do registry
+                      Versao do cadastro
                     </p>
                     <p className="mt-2 text-sm font-medium text-foreground">
                       {contractRegistry?.version ?? "Carregando..."}

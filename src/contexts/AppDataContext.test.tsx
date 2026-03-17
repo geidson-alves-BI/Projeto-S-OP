@@ -19,6 +19,9 @@ function Probe() {
     state,
     rmData,
     loading,
+    hydrationStatus,
+    hydrationError,
+    lastHydratedAt,
     lastFGImportAt,
     lastClientesImportAt,
     lastRMImportAt,
@@ -27,6 +30,9 @@ function Probe() {
   return (
     <div>
       <div data-testid="loading">{String(loading)}</div>
+      <div data-testid="hydration-status">{hydrationStatus}</div>
+      <div data-testid="hydration-error">{hydrationError ?? ""}</div>
+      <div data-testid="hydrated-at">{lastHydratedAt ?? ""}</div>
       <div data-testid="products">{state?.products.length ?? 0}</div>
       <div data-testid="has-clientes">{String(state?.hasClientes ?? false)}</div>
       <div data-testid="clientes">{state?.clientes.length ?? 0}</div>
@@ -139,5 +145,25 @@ describe("AppDataProvider hydration", () => {
     expect(screen.getByTestId("rm-count")).toHaveTextContent("0");
     expect(screen.getByTestId("fg-ts")).toHaveTextContent("2026-03-16T10:00:00Z");
     expect(screen.getByTestId("cli-ts")).toHaveTextContent("2026-03-16T10:05:00Z");
+    expect(screen.getByTestId("hydration-status")).toHaveTextContent("success");
+    expect(screen.getByTestId("hydration-error")).toHaveTextContent("");
+    expect(screen.getByTestId("hydrated-at").textContent).not.toBe("");
+  });
+
+  it("exposes hydration error status when backend snapshot fails", async () => {
+    getAppDataSnapshotMock.mockRejectedValueOnce(new Error("falha de snapshot"));
+
+    render(
+      <AppDataProvider>
+        <Probe />
+      </AppDataProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("hydration-status")).toHaveTextContent("error");
+    });
+
+    expect(screen.getByTestId("products")).toHaveTextContent("0");
+    expect(screen.getByTestId("hydration-error")).toHaveTextContent("falha de snapshot");
   });
 });

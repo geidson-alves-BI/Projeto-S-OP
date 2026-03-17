@@ -1,150 +1,337 @@
-import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
-import { BarChart3, Grid3X3, ListChecks, Package, Users } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { BarChart3, Grid3X3, ListChecks, Package, RefreshCw } from "lucide-react";
 import PageTransition from "@/components/PageTransition";
 import MetricCard from "@/components/MetricCard";
 import MultiSelect from "@/components/MultiSelect";
 import { ABCBadge, StratBadge } from "@/components/ABCBadge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Slider } from "@/components/ui/slider";
+import { Button } from "@/components/ui/button";
 import { ABCParetoChart, ABCCompleteChart, ABCXYZMatrix, ProductSeriesChart } from "@/components/Charts";
 import { useAppData } from "@/contexts/AppDataContext";
-import { toWide, pipeline } from "@/lib/pcpEngine";
+import { useAbcXyzAnalysis } from "@/hooks/use-abc-xyz-analysis";
+import { sanitizeProductCopy } from "@/lib/analytics-consumption";
+import type { ProductData } from "@/lib/pcpEngine";
+import type { AbcXyzAnalysisProduct } from "@/types/analytics";
+
+function mapAnalysisProductToChartProduct(product: AbcXyzAnalysisProduct): ProductData {
+  return {
+    SKU_LABEL: product.sku_label,
+    codigoProduto: product.sku,
+    denominacao: product.descricao,
+    monthValues: product.month_values,
+    volumeAnual: product.volume_anual,
+    percAcumulado: product.percentual_acumulado,
+    classeABC: product.classe_abc,
+    mediaMensal: product.media_mensal,
+    desvioPadrao: product.desvio_padrao,
+    cv: product.cv,
+    classeXYZ: product.classe_xyz,
+    abcXyz: product.classe_combinada,
+    trendPct: product.tendencia_percentual,
+    trendLabel: product.tendencia,
+    consumoDiario: product.consumo_diario,
+    diasAlvoBase: product.dias_alvo,
+    estrategiaBase: product.estrategia,
+    targetKg30: product.consumo_diario * 30,
+    targetKg60: product.consumo_diario * 60,
+    targetKg90: product.consumo_diario * 90,
+    prioridadeMTS: product.prioridade,
+    top1Cliente: product.top1_cliente || undefined,
+    top1ShareProduto: product.top1_share || undefined,
+    hhiProduto: product.hhi_cliente || undefined,
+    diasAlvoAjustado: product.dias_alvo,
+    estrategiaFinal: product.estrategia,
+    targetKgAjustado: product.consumo_diario * product.dias_alvo,
+  };
+}
 
 export default function AbcXyzPage() {
-  const { state, loading } = useAppData();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!loading && !state) {
-      navigate("/upload");
-    }
-  }, [loading, state, navigate]);
-
+  const { hydrationStatus, hydrationError } = useAppData();
   const [topN, setTopN] = useState(40);
-  const [estratFilter, setEstratFilter] = useState("Todos");
   const [selectedProds, setSelectedProds] = useState<string[]>([]);
-  const [selectedClientes, setSelectedClientes] = useState<string[]>([]);
 
-  const clienteView = useMemo(() => {
-    if (!state || selectedClientes.length === 0) return null;
-    const filteredLong = state.prodLong.filter(r => selectedClientes.includes((r as any).cliente ?? ""));
-    if (filteredLong.length === 0) return null;
-    const { wide, monthCols } = toWide(filteredLong);
-    const products = pipeline(wide, monthCols);
-    return { products, monthCols };
-  }, [state, selectedClientes]);
+  const shouldLoadAnalysis = hydrationStatus === "success";
+  const {
+    analysis,
+    loading: analysisLoading,
+    error: analysisError,
+    refresh,
+    availability,
+  } = useAbcXyzAnalysis({ autoLoad: shouldLoadAnalysis });
 
-  const filteredRec = useMemo(() => {
-    if (!state) return [];
-    let list = state.products;
-    if (estratFilter !== "Todos") {
-      list = list.filter(p => (p.estrategiaFinal ?? p.estrategiaBase) === estratFilter);
+  const products = useMemo(
+    () => (analysis?.produtos ?? []).map(mapAnalysisProductToChartProduct),
+    [analysis?.produtos],
+  );
+  const monthCols = useMemo(() => {
+    const first = products[0];
+    if (!first) {
+      return [];
     }
-    return list;
-  }, [state, estratFilter]);
+    return Object.keys(first.monthValues).sort();
+  }, [products]);
 
-  const selectedProductsList = useMemo(() => {
-    if (!state || selectedProds.length === 0) return [];
-    return state.products.filter(p => selectedProds.includes(p.SKU_LABEL));
-  }, [state, selectedProds]);
+  const productOptions = useMemo(() => products.map((item) => item.SKU_LABEL), [products]);
+  const selectedProductsList = useMemo(
+    () => products.filter((item) => selectedProds.includes(item.SKU_LABEL)),
+    [products, selectedProds],
+  );
 
-  const productOptions = useMemo(() => state?.products.map(p => p.SKU_LABEL) ?? [], [state]);
+  const sliderMax = Math.max(10, Math.min(120, products.length || 10));
+  const effectiveTopN = Math.min(topN, Math.max(products.length, 1));
 
-  if (!state) return null;
+  if (hydrationStatus === "loading" || hydrationStatus === "idle") {
+    return (
+      <PageTransition className="space-y-6 p-6">
+        <section className="rounded-2xl border border-border/70 bg-card/90 p-6">
+          <h1 className="text-2xl font-semibold text-foreground">Classificacao ABC/XYZ</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Sincronizando os dados da base principal para liberar a analise.
+          </p>
+        </section>
+      </PageTransition>
+    );
+  }
+
+  if (hydrationStatus === "error") {
+    return (
+      <PageTransition className="space-y-6 p-6">
+        <section className="rounded-2xl border border-destructive/30 bg-destructive/10 p-6">
+          <h1 className="text-2xl font-semibold text-foreground">Falha ao carregar a base</h1>
+          <p className="mt-2 text-sm text-destructive">
+            {hydrationError ?? "Nao foi possivel concluir a sincronizacao da base para esta analise."}
+          </p>
+          <div className="mt-4">
+            <Link to="/upload" className="text-sm font-medium text-primary underline underline-offset-4">
+              Revisar uploads da base
+            </Link>
+          </div>
+        </section>
+      </PageTransition>
+    );
+  }
+
+  if (analysisLoading && !analysis) {
+    return (
+      <PageTransition className="space-y-6 p-6">
+        <section className="rounded-2xl border border-border/70 bg-card/90 p-6">
+          <h1 className="text-2xl font-semibold text-foreground">Classificacao ABC/XYZ</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Consolidando indicadores e classificacao por SKU.
+          </p>
+        </section>
+      </PageTransition>
+    );
+  }
+
+  if (analysisError && !analysis) {
+    return (
+      <PageTransition className="space-y-6 p-6">
+        <section className="rounded-2xl border border-destructive/30 bg-destructive/10 p-6">
+          <h1 className="text-2xl font-semibold text-foreground">Falha ao carregar a analise ABC/XYZ</h1>
+          <p className="mt-2 text-sm text-destructive">{analysisError}</p>
+          <Button className="mt-4" variant="outline" onClick={() => void refresh()}>
+            Tentar novamente
+          </Button>
+        </section>
+      </PageTransition>
+    );
+  }
+
+  if (!analysis || analysis.status === "unavailable") {
+    return (
+      <PageTransition className="space-y-6 p-6">
+        <section className="rounded-2xl border border-warning/30 bg-warning/10 p-6">
+          <h1 className="text-2xl font-semibold text-foreground">Base nao disponivel para classificacao ABC/XYZ</h1>
+          <p className="mt-2 text-sm text-foreground">
+            Envie a base de producao para liberar a leitura por SKU e a matriz combinada.
+          </p>
+          <div className="mt-4">
+            <Link to="/upload" className="text-sm font-medium text-primary underline underline-offset-4">
+              Ir para upload de dados
+            </Link>
+          </div>
+        </section>
+      </PageTransition>
+    );
+  }
+
+  const summary = analysis.indicadores_resumidos;
+  const isPartial = analysis.status === "partial" || availability.state === "partial";
+  const confidenceLabel = `${analysis.confiabilidade.nivel} (${analysis.confiabilidade.score}%)`;
+  const partialUpdateMessage =
+    analysisError ?? (availability.state === "partial" ? availability.message : null);
 
   return (
-    <PageTransition className="p-6">
-      <Tabs defaultValue="abc-exec" className="w-full">
-        <TabsList className="bg-secondary border border-border mb-4 h-10 flex-wrap">
-          <TabsTrigger value="abc-exec" className="font-mono text-xs gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-            <BarChart3 className="h-3.5 w-3.5" /> ABC Executivo
+    <PageTransition className="space-y-6 p-6">
+      <section className="rounded-2xl border border-border/70 bg-card/90 p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold text-foreground">Classificacao ABC/XYZ</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Leitura consolidada por SKU com base oficial carregada.
+            </p>
+          </div>
+          <Button variant="outline" className="gap-2" onClick={() => void refresh()} disabled={analysisLoading}>
+            <RefreshCw className={`h-4 w-4 ${analysisLoading ? "animate-spin" : ""}`} />
+            Atualizar analise
+          </Button>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <MetricCard label="SKUs classificados" value={summary.total_skus} />
+          <MetricCard label="Volume total" value={`${Math.round(summary.volume_total).toLocaleString()} kg`} />
+          <MetricCard label="Concentracao top 10" value={`${summary.concentracao_top10_percent.toFixed(1)}%`} />
+          <MetricCard label="Confiabilidade" value={confidenceLabel} />
+        </div>
+
+        <div className={`mt-4 rounded-lg border px-4 py-3 text-sm ${isPartial ? "border-warning/30 bg-warning/10 text-foreground" : "border-success/30 bg-success/10 text-foreground"}`}>
+          {isPartial
+            ? "Analise parcial disponivel. A tela segue funcional com o que foi consolidado."
+            : "Analise completa disponivel para leitura executiva e operacional."}
+        </div>
+
+        {partialUpdateMessage ? (
+          <div className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-foreground">
+            Atualizacao parcial detectada: {sanitizeProductCopy(partialUpdateMessage)}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <article className="rounded-2xl border border-border/70 bg-card/85 p-5">
+          <h2 className="text-sm font-semibold text-foreground">Base utilizada</h2>
+          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+            {analysis.base_utilizada.map((item) => (
+              <li key={item}>- {item}</li>
+            ))}
+          </ul>
+        </article>
+        <article className="rounded-2xl border border-border/70 bg-card/85 p-5">
+          <h2 className="text-sm font-semibold text-foreground">Abrangencia da analise</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Escopo: {analysis.abrangencia_analise.escopo}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Periodo: {analysis.abrangencia_analise.periodo_inicial ?? "n/d"} ate {analysis.abrangencia_analise.periodo_final ?? "n/d"}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Meses considerados: {analysis.abrangencia_analise.meses_considerados}
+          </p>
+        </article>
+        <article className="rounded-2xl border border-border/70 bg-card/85 p-5">
+          <h2 className="text-sm font-semibold text-foreground">Criterio de classificacao</h2>
+          <p className="mt-2 text-sm text-muted-foreground">{analysis.criterio_classificacao.abc}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{analysis.criterio_classificacao.xyz}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{analysis.criterio_classificacao.combinada}</p>
+        </article>
+        <article className="rounded-2xl border border-border/70 bg-card/85 p-5">
+          <h2 className="text-sm font-semibold text-foreground">Limitacoes da analise</h2>
+          {analysis.limitacoes.length > 0 ? (
+            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+              {analysis.limitacoes.map((item) => (
+                <li key={item}>- {item}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">Nenhuma limitacao critica registrada nesta leitura.</p>
+          )}
+        </article>
+      </section>
+
+      <Tabs defaultValue="visao-geral" className="w-full">
+        <TabsList className="mb-4 h-10 flex-wrap border border-border bg-secondary">
+          <TabsTrigger value="visao-geral" className="gap-1.5 text-xs font-mono data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+            <BarChart3 className="h-3.5 w-3.5" /> Visao geral
           </TabsTrigger>
-          <TabsTrigger value="abc-full" className="font-mono text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-            ABC Completo
+          <TabsTrigger value="matriz" className="gap-1.5 text-xs font-mono data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+            <Grid3X3 className="h-3.5 w-3.5" /> Matriz combinada
           </TabsTrigger>
-          <TabsTrigger value="matrix" className="font-mono text-xs gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-            <Grid3X3 className="h-3.5 w-3.5" /> Matriz ABC-XYZ
+          <TabsTrigger value="recomendacao" className="gap-1.5 text-xs font-mono data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+            <ListChecks className="h-3.5 w-3.5" /> Priorizacao
           </TabsTrigger>
-          <TabsTrigger value="rec" className="font-mono text-xs gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-            <ListChecks className="h-3.5 w-3.5" /> Recomendações
-          </TabsTrigger>
-          <TabsTrigger value="produto" className="font-mono text-xs gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+          <TabsTrigger value="produto" className="gap-1.5 text-xs font-mono data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <Package className="h-3.5 w-3.5" /> Produto
           </TabsTrigger>
-          {state.hasClientes && (
-            <TabsTrigger value="cliente" className="font-mono text-xs gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Users className="h-3.5 w-3.5" /> Cliente (Mix)
-            </TabsTrigger>
-          )}
         </TabsList>
 
-        <TabsContent value="abc-exec" className="space-y-4">
-          <div className="metric-card">
-            <div className="flex items-center gap-4 mb-4">
-              <span className="text-xs text-muted-foreground font-mono">Top N:</span>
-              <Slider value={[topN]} onValueChange={v => setTopN(v[0])} min={10} max={Math.min(120, state.products.length)} step={5} className="w-48" />
-              <span className="text-sm font-mono text-primary">{topN}</span>
-            </div>
-            <h3 className="text-sm font-semibold mb-3 text-foreground">Curva ABC Executiva — Volume Produzido (kg)</h3>
-            <ABCParetoChart data={state.products} topN={topN} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="abc-full">
-          <div className="metric-card">
-            <h3 className="text-sm font-semibold mb-3 text-foreground">Curva ABC Completa — Acumulado</h3>
-            <ABCCompleteChart data={state.products} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="matrix">
-          <div className="metric-card">
-            <h3 className="text-sm font-semibold mb-4 text-foreground">Matriz ABC-XYZ (qtde de produtos)</h3>
-            <ABCXYZMatrix data={state.products} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="rec">
+        <TabsContent value="visao-geral" className="space-y-4">
           <div className="metric-card space-y-4">
             <div className="flex items-center gap-4">
-              <Select value={estratFilter} onValueChange={setEstratFilter}>
-                <SelectTrigger className="w-48 font-mono text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Todos">Todos</SelectItem>
-                  <SelectItem value="MTS (candidato)">MTS (candidato)</SelectItem>
-                  <SelectItem value="MTO">MTO</SelectItem>
-                </SelectContent>
-              </Select>
-              <span className="text-xs text-muted-foreground font-mono">{filteredRec.length} registros</span>
+              <span className="text-xs font-mono text-muted-foreground">Top N</span>
+              <Slider
+                value={[Math.min(topN, sliderMax)]}
+                onValueChange={(value) => setTopN(value[0])}
+                min={10}
+                max={sliderMax}
+                step={5}
+                className="w-48"
+              />
+              <span className="text-sm font-mono text-primary">{Math.min(topN, sliderMax)}</span>
             </div>
-            <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+            <h3 className="text-sm font-semibold text-foreground">Curva ABC por volume consolidado</h3>
+            <ABCParetoChart data={products} topN={effectiveTopN} />
+            <h3 className="text-sm font-semibold text-foreground">Curva acumulada completa</h3>
+            <ABCCompleteChart data={products} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="matriz">
+          <div className="metric-card space-y-4">
+            <h3 className="text-sm font-semibold text-foreground">Matriz ABC/XYZ por quantidade de SKUs</h3>
+            <ABCXYZMatrix data={products} />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <MetricCard label="Classe A" value={summary.classes_abc.A} />
+              <MetricCard label="Classe B" value={summary.classes_abc.B} />
+              <MetricCard label="Classe C" value={summary.classes_abc.C} />
+              <MetricCard label="Classe X" value={summary.classes_xyz.X} />
+              <MetricCard label="Classe Y" value={summary.classes_xyz.Y} />
+              <MetricCard label="Classe Z" value={summary.classes_xyz.Z} />
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="recomendacao">
+          <div className="metric-card space-y-4">
+            <h3 className="text-sm font-semibold text-foreground">Priorizacao executiva resumida</h3>
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              {summary.priorizacao_executiva.map((item) => (
+                <li key={item}>- {item}</li>
+              ))}
+            </ul>
+            <div className="overflow-x-auto max-h-[460px] overflow-y-auto">
               <table className="data-table">
                 <thead className="sticky top-0 z-10">
                   <tr>
-                    <th>SKU</th><th>ABC-XYZ</th><th>Vol. Anual</th><th>Média/Mês</th>
-                    <th>Tendência</th><th>Estratégia</th><th>Dias Alvo</th><th>Prioridade</th>
-                    {state.hasClientes && <th>Top1 Cliente</th>}
-                    {state.hasClientes && <th>Top1 Share</th>}
-                    {state.hasClientes && <th>HHI</th>}
+                    <th>SKU</th>
+                    <th>ABC/XYZ</th>
+                    <th>Vol. anual</th>
+                    <th>Media mensal</th>
+                    <th>Tendencia</th>
+                    <th>Estrategia</th>
+                    <th>Dias alvo</th>
+                    <th>Prioridade</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRec.slice(0, 80).map(p => (
-                    <tr key={p.SKU_LABEL}>
-                      <td className="max-w-[200px] truncate text-xs" title={p.SKU_LABEL}>{p.SKU_LABEL}</td>
-                      <td><ABCBadge classe={p.abcXyz} /></td>
-                      <td className="text-right font-mono text-xs">{Math.round(p.volumeAnual).toLocaleString()}</td>
-                      <td className="text-right font-mono text-xs">{Math.round(p.mediaMensal).toLocaleString()}</td>
-                      <td className="text-xs">{p.trendLabel}</td>
-                      <td><StratBadge strat={p.estrategiaFinal ?? p.estrategiaBase} /></td>
-                      <td className="text-right font-mono text-xs">{p.diasAlvoAjustado ?? p.diasAlvoBase}</td>
-                      <td className="text-right font-mono text-xs">{p.prioridadeMTS}</td>
-                      {state.hasClientes && <td className="text-xs max-w-[120px] truncate">{p.top1Cliente ?? "-"}</td>}
-                      {state.hasClientes && <td className="text-right font-mono text-xs">{p.top1ShareProduto != null ? `${(p.top1ShareProduto * 100).toFixed(1)}%` : "-"}</td>}
-                      {state.hasClientes && <td className="text-right font-mono text-xs">{p.hhiProduto != null ? p.hhiProduto.toFixed(3) : "-"}</td>}
+                  {products.slice(0, 80).map((product) => (
+                    <tr key={product.SKU_LABEL}>
+                      <td className="max-w-[220px] truncate text-xs" title={product.SKU_LABEL}>
+                        {product.SKU_LABEL}
+                      </td>
+                      <td>
+                        <ABCBadge classe={product.abcXyz} />
+                      </td>
+                      <td className="text-right font-mono text-xs">{Math.round(product.volumeAnual).toLocaleString()}</td>
+                      <td className="text-right font-mono text-xs">{Math.round(product.mediaMensal).toLocaleString()}</td>
+                      <td className="text-xs">{product.trendLabel}</td>
+                      <td>
+                        <StratBadge strat={product.estrategiaFinal ?? product.estrategiaBase} />
+                      </td>
+                      <td className="text-right font-mono text-xs">{product.diasAlvoAjustado ?? product.diasAlvoBase}</td>
+                      <td className="text-right font-mono text-xs">{product.prioridadeMTS}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -155,78 +342,54 @@ export default function AbcXyzPage() {
 
         <TabsContent value="produto">
           <div className="metric-card space-y-4">
-            <MultiSelect options={productOptions} selected={selectedProds} onChange={setSelectedProds} placeholder="Buscar produto por código ou palavra-chave..." />
-            {selectedProductsList.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <MetricCard label="Vol. Total Selecionado" value={`${Math.round(selectedProductsList.reduce((s, p) => s + p.volumeAnual, 0)).toLocaleString()} kg`} sub={`${selectedProductsList.length} produto(s)`} />
+            <MultiSelect
+              options={productOptions}
+              selected={selectedProds}
+              onChange={setSelectedProds}
+              placeholder="Buscar produto por codigo ou descricao..."
+            />
+
+            {selectedProductsList.length > 0 ? (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <MetricCard
+                  label="Volume total selecionado"
+                  value={`${Math.round(selectedProductsList.reduce((sum, item) => sum + item.volumeAnual, 0)).toLocaleString()} kg`}
+                  sub={`${selectedProductsList.length} produto(s)`}
+                />
               </div>
-            )}
-            {selectedProductsList.map(prod => (
-              <div key={prod.SKU_LABEL} className="space-y-4 border border-border rounded-lg p-4">
-                <h3 className="text-sm font-semibold text-foreground">Série Mensal — {prod.codigoProduto}</h3>
-                <ProductSeriesChart data={prod} monthCols={state.monthCols} />
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <MetricCard label="Volume Anual" value={`${Math.round(prod.volumeAnual).toLocaleString()} kg`} />
-                  <MetricCard label="ABC-XYZ" value={prod.abcXyz} />
-                  <MetricCard label="CV" value={prod.cv.toFixed(2)} />
-                  <MetricCard label="Tendência" value={prod.trendLabel} sub={prod.trendPct != null ? `${prod.trendPct.toFixed(1)}%` : undefined} />
+            ) : null}
+
+            {selectedProductsList.map((product) => (
+              <div key={product.SKU_LABEL} className="space-y-4 rounded-lg border border-border p-4">
+                <h3 className="text-sm font-semibold text-foreground">Serie mensal - {product.codigoProduto}</h3>
+                <ProductSeriesChart data={product} monthCols={monthCols} />
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <MetricCard label="Volume anual" value={`${Math.round(product.volumeAnual).toLocaleString()} kg`} />
+                  <MetricCard label="Classe combinada" value={product.abcXyz} />
+                  <MetricCard label="Variabilidade (CV)" value={product.cv.toFixed(2)} />
+                  <MetricCard
+                    label="Tendencia"
+                    value={product.trendLabel}
+                    sub={product.trendPct != null ? `${product.trendPct.toFixed(1)}%` : undefined}
+                  />
                 </div>
-                {prod.top1Cliente && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    <MetricCard label="Top1 Cliente" value={prod.top1Cliente} />
-                    <MetricCard label="Top1 Share" value={`${((prod.top1ShareProduto ?? 0) * 100).toFixed(1)}%`} />
-                    <MetricCard label="HHI Produto" value={(prod.hhiProduto ?? 0).toFixed(3)} />
+                {product.top1Cliente ? (
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                    <MetricCard label="Principal cliente" value={product.top1Cliente} />
+                    <MetricCard label="Participacao principal" value={`${((product.top1ShareProduto ?? 0) * 100).toFixed(1)}%`} />
+                    <MetricCard label="Concentracao (HHI)" value={(product.hhiProduto ?? 0).toFixed(3)} />
                   </div>
-                )}
+                ) : null}
               </div>
             ))}
-            {selectedProds.length === 0 && <p className="text-sm text-muted-foreground">Selecione um ou mais produtos para visualizar.</p>}
+
+            {selectedProds.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Selecione um ou mais produtos para leitura detalhada por SKU.
+              </p>
+            ) : null}
           </div>
         </TabsContent>
-
-        {state.hasClientes && (
-          <TabsContent value="cliente">
-            <div className="metric-card space-y-4">
-              <MultiSelect options={state.clientes} selected={selectedClientes} onChange={setSelectedClientes} placeholder="Buscar cliente por código ou palavra-chave..." />
-              {selectedClientes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Selecione um ou mais clientes para ver o mix (ABC/XYZ).</p>
-              ) : clienteView ? (
-                <>
-                  <p className="text-xs text-muted-foreground font-mono">
-                    {selectedClientes.length} cliente(s) · {clienteView.products.length} produtos · {clienteView.monthCols.length} meses
-                  </p>
-                  <ABCParetoChart data={clienteView.products} topN={Math.min(40, clienteView.products.length)} />
-                  <ABCXYZMatrix data={clienteView.products} />
-                  <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-                    <table className="data-table">
-                      <thead className="sticky top-0 z-10">
-                        <tr>
-                          <th>SKU</th><th>ABC-XYZ</th><th>Vol. Anual</th><th>Média/Mês</th>
-                          <th>Tendência</th><th>Estratégia</th><th>Prioridade</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {clienteView.products.slice(0, 60).map(p => (
-                          <tr key={p.SKU_LABEL}>
-                            <td className="max-w-[200px] truncate text-xs">{p.SKU_LABEL}</td>
-                            <td><ABCBadge classe={p.abcXyz} /></td>
-                            <td className="text-right font-mono text-xs">{Math.round(p.volumeAnual).toLocaleString()}</td>
-                            <td className="text-right font-mono text-xs">{Math.round(p.mediaMensal).toLocaleString()}</td>
-                            <td className="text-xs">{p.trendLabel}</td>
-                            <td><StratBadge strat={p.estrategiaBase} /></td>
-                            <td className="text-right font-mono text-xs">{p.prioridadeMTS}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">Sem dados para os clientes selecionados.</p>
-              )}
-            </div>
-          </TabsContent>
-        )}
       </Tabs>
     </PageTransition>
   );

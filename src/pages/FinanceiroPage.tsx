@@ -1,21 +1,21 @@
 import { useMemo } from "react";
 import { DollarSign, Download, RefreshCw } from "lucide-react";
 import AnalysisStatusPanel from "@/components/AnalysisStatusPanel";
+import { AnalyticsStatusBadge } from "@/components/analytics/AnalyticsStatusBadge";
 import MetricCard from "@/components/MetricCard";
 import PageTransition from "@/components/PageTransition";
 import { Button } from "@/components/ui/button";
 import { useAnalyticsV2 } from "@/hooks/use-analytics-v2";
+import { sanitizeProductCopy } from "@/lib/analytics-consumption";
 import { useUploadCenter } from "@/hooks/use-upload-center";
 import {
   analyticsV2ConfidenceLabel,
   analyticsV2EstimateTypeLabel,
-  ANALYTICS_V2_STATUS_BADGE_CLASS,
-  ANALYTICS_V2_STATUS_LABEL,
   getMainAnalyticsV2Limitation,
   summarizeAnalyticsV2Base,
 } from "@/lib/analytics-v2-presenters";
 import { downloadCSV } from "@/lib/downloadCSV";
-import type { AnalyticsV2MetricContract, AnalyticsV2Status } from "@/types/analytics";
+import type { AnalyticsV2MetricContract } from "@/types/analytics";
 
 const FINANCIAL_METRIC_IDS = [
   "projected_revenue",
@@ -62,16 +62,6 @@ const KPI_DEFINITIONS = [
   },
 ] as const;
 
-function StatusPill({ status }: { status: AnalyticsV2Status }) {
-  return (
-    <span
-      className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-mono uppercase tracking-[0.24em] ${ANALYTICS_V2_STATUS_BADGE_CLASS[status]}`}
-    >
-      {ANALYTICS_V2_STATUS_LABEL[status]}
-    </span>
-  );
-}
-
 function FinancialMetricDetail({
   title,
   metric,
@@ -86,7 +76,7 @@ function FinancialMetricDetail({
     <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
       <div className="flex items-start justify-between gap-3">
         <h3 className="text-base font-semibold text-foreground">{title}</h3>
-        <StatusPill status={status} />
+        <AnalyticsStatusBadge status={status} />
       </div>
       <p className="mt-3 text-2xl font-semibold text-foreground">
         {metric ? metric.formatted_value : loading ? "Carregando..." : "Indisponivel"}
@@ -97,15 +87,15 @@ function FinancialMetricDetail({
           {metric ? analyticsV2ConfidenceLabel(metric.confianca) : "-"}
         </p>
         <p>
-          <span className="text-muted-foreground">Decision grade:</span>{" "}
+          <span className="text-muted-foreground">Qualidade para decisao:</span>{" "}
           {metric?.decision_grade ?? "-"}
         </p>
         <p>
-          <span className="text-muted-foreground">Base usada:</span>{" "}
+          <span className="text-muted-foreground">Base utilizada:</span>{" "}
           {metric ? summarizeAnalyticsV2Base(metric.base_usada) : "-"}
         </p>
         <p>
-          <span className="text-muted-foreground">Estimate type:</span>{" "}
+          <span className="text-muted-foreground">Origem do calculo:</span>{" "}
           {metric ? analyticsV2EstimateTypeLabel(metric.estimate_type) : "-"}
         </p>
         <p className="text-warning">{getMainAnalyticsV2Limitation(metric)}</p>
@@ -122,15 +112,15 @@ export default function FinanceiroPage() {
     metricsById,
     metrics,
     loading,
-    error,
     refresh,
     hasAnyContent,
+    availability,
   } = useAnalyticsV2({
     scope: "global",
     metricIds: [...FINANCIAL_METRIC_IDS],
   });
 
-  const scenarios = financialScenarios?.scenarios ?? [];
+  const scenarios = useMemo(() => financialScenarios?.scenarios ?? [], [financialScenarios]);
   const scenarioById = useMemo(
     () => Object.fromEntries(scenarios.map((scenario) => [scenario.scenario_id, scenario])),
     [scenarios],
@@ -148,7 +138,7 @@ export default function FinanceiroPage() {
       "Cenario",
       "Status",
       "Confianca",
-      "Decision grade",
+      "Qualidade para decisao",
       "Receita",
       "COGS",
       "Margem",
@@ -156,7 +146,7 @@ export default function FinanceiroPage() {
       "Capital empatado total",
       "Custo de carregamento",
       "Delta vs base",
-      "Base usada",
+      "Base utilizada",
       "Limitacao principal",
     ];
     const rows = scenarios.map((scenario) => [
@@ -174,7 +164,7 @@ export default function FinanceiroPage() {
       scenario.base_usada.join(" | "),
       scenario.limitations[0] ?? "sem limitacao critica",
     ]);
-    downloadCSV([header, ...rows], "financeiro_v2_scenarios.csv");
+    downloadCSV([header, ...rows], "financeiro_cenarios.csv");
   };
 
   return (
@@ -184,7 +174,7 @@ export default function FinanceiroPage() {
           <DollarSign className="h-5 w-5 text-primary" /> Financeiro
         </h2>
         <p>
-          Fonte principal unica: analytics v2 (snapshot + metrics + cenarios). Nenhum KPI desta tela e calculado no frontend.
+          Fonte principal unica: camada analitica oficial (resumo, metricas e cenarios). Nenhum KPI desta tela e calculado no frontend.
         </p>
       </section>
 
@@ -192,7 +182,7 @@ export default function FinanceiroPage() {
         uploadCenter={uploadCenter}
         moduleKey="finance"
         title="Prontidao financeira"
-        description="A tela Financeiro usa a camada analytics v2 para KPI, explicabilidade e comparacao de cenarios."
+        description="A tela Financeiro usa a camada analitica oficial para KPI, explicabilidade e comparacao de cenarios."
         datasetIds={["finance_documents", "raw_material_inventory", "bom", "sales_orders", "production"]}
       />
 
@@ -206,7 +196,7 @@ export default function FinanceiroPage() {
           disabled={loading}
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Atualizar analytics v2
+          Atualizar analise
         </Button>
         <Button
           variant="outline"
@@ -219,14 +209,14 @@ export default function FinanceiroPage() {
         </Button>
       </div>
 
-      {error && !hasAnyContent && (
+      {availability.state === "unavailable" && availability.message && (
         <section className="rounded-2xl border border-destructive/35 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          Camada analytics v2 indisponivel para Financeiro: {error}
+          Analise indisponivel para Financeiro: {sanitizeProductCopy(availability.message)}
         </section>
       )}
-      {error && hasAnyContent && (
+      {availability.state === "partial" && availability.message && hasAnyContent && (
         <section className="rounded-2xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-foreground">
-          Atualizacao parcial: {error}
+          Atualizacao parcial: {sanitizeProductCopy(availability.message)}
         </section>
       )}
       {hasPartialMetrics && (
@@ -237,7 +227,7 @@ export default function FinanceiroPage() {
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <MetricCard
-          label="Metricas v2 prontas"
+          label="Metricas prontas"
           value={metrics.filter((metric) => metric.status === "ready").length}
           sub={`Parciais: ${metrics.filter((metric) => metric.status === "partial").length}`}
           accent
@@ -246,19 +236,19 @@ export default function FinanceiroPage() {
         <MetricCard
           label="Dataset financeiro"
           value={financeDataset?.uploaded ? "Ativo" : "Nao enviado"}
-          sub={financeDataset ? `${financeDataset.row_count} linhas` : "sem snapshot"}
+          sub={financeDataset ? `${financeDataset.row_count} linhas` : "sem resumo"}
         />
         <MetricCard
           label="Cenario base"
           value={baseScenario?.display_name ?? "Indisponivel"}
-          sub={baseScenario ? `Decision grade ${baseScenario.decision_grade}` : "sem cenario"}
+          sub={baseScenario ? `Qualidade ${baseScenario.decision_grade}` : "sem cenario"}
         />
       </div>
 
       <section className="rounded-[26px] border border-border/70 bg-card/90 p-5 shadow-[0_24px_80px_rgba(2,6,23,0.18)]">
         <div className="space-y-1">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">KPIs financeiros v2</p>
-          <h3 className="text-xl font-semibold text-foreground">Metrica calculada no backend com explicabilidade completa</h3>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">KPIs financeiros</p>
+          <h3 className="text-xl font-semibold text-foreground">Metricas oficiais com explicabilidade completa</h3>
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {KPI_DEFINITIONS.map((definition) => (
@@ -283,7 +273,7 @@ export default function FinanceiroPage() {
               <div key={scenario.scenario_id} className="rounded-2xl border border-border/70 bg-muted/20 p-4">
                 <div className="flex items-start justify-between gap-2">
                   <h4 className="text-lg font-semibold text-foreground">{scenario.display_name}</h4>
-                  <StatusPill status={scenario.status} />
+                  <AnalyticsStatusBadge status={scenario.status} />
                 </div>
                 <div className="mt-3 space-y-1 text-xs text-foreground">
                   <p>
@@ -291,10 +281,10 @@ export default function FinanceiroPage() {
                     {analyticsV2ConfidenceLabel(scenario.confianca)}
                   </p>
                   <p>
-                    <span className="text-muted-foreground">Decision grade:</span> {scenario.decision_grade}
+                    <span className="text-muted-foreground">Qualidade para decisao:</span> {scenario.decision_grade}
                   </p>
                   <p>
-                    <span className="text-muted-foreground">Base usada:</span>{" "}
+                    <span className="text-muted-foreground">Base utilizada:</span>{" "}
                     {summarizeAnalyticsV2Base(scenario.base_usada)}
                   </p>
                 </div>
@@ -327,7 +317,7 @@ export default function FinanceiroPage() {
         ) : (
           <div className="mt-4 rounded-2xl border border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground">
             {loading
-              ? "Carregando cenarios financeiros v2..."
+              ? "Carregando cenarios financeiros..."
               : "Cenarios financeiros indisponiveis para o escopo atual."}
           </div>
         )}
@@ -345,11 +335,11 @@ export default function FinanceiroPage() {
                 <th>Metrica</th>
                 <th>Status</th>
                 <th>Confianca</th>
-                <th>Decision grade</th>
+                <th>Qualidade para decisao</th>
                 <th>Valor</th>
-                <th>Base usada</th>
+                <th>Base utilizada</th>
                 <th>Escopo</th>
-                <th>Estimate type</th>
+                <th>Origem do calculo</th>
                 <th>Limitacao principal</th>
               </tr>
             </thead>
@@ -358,7 +348,7 @@ export default function FinanceiroPage() {
                 <tr key={metric.metric_id}>
                   <td className="font-mono text-xs">{metric.display_name}</td>
                   <td>
-                    <StatusPill status={metric.status} />
+                    <AnalyticsStatusBadge status={metric.status} />
                   </td>
                   <td className="text-xs">{analyticsV2ConfidenceLabel(metric.confianca)}</td>
                   <td className="text-xs font-semibold">{metric.decision_grade}</td>

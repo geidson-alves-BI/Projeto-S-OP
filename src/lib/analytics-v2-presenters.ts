@@ -23,9 +23,9 @@ export function analyticsV2ConfidenceLabel(confidence: AnalyticsV2Confidence | s
 }
 
 export function analyticsV2EstimateTypeLabel(estimateType: string) {
-  if (estimateType === "documented") return "Documented";
-  if (estimateType === "hybrid") return "Hybrid";
-  return "Estimated";
+  if (estimateType === "documented") return "Documentado";
+  if (estimateType === "hybrid") return "Combinado";
+  return "Estimado";
 }
 
 export function summarizeAnalyticsV2Base(baseUsed: string[]) {
@@ -35,7 +35,7 @@ export function summarizeAnalyticsV2Base(baseUsed: string[]) {
 }
 
 export function getMainAnalyticsV2Limitation(metric: AnalyticsV2MetricContract | null) {
-  if (!metric) return "Metrica ainda nao retornada pelo backend v2.";
+  if (!metric) return "Metrica ainda nao retornada pela camada analitica.";
   if (metric.limitations.length > 0) return metric.limitations[0];
   if (metric.missing_data.length > 0) return `Lacuna principal: ${metric.missing_data[0]}.`;
   return "Sem limitacoes relevantes para este recorte.";

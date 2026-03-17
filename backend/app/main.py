@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from .analytics_v2.engine import analytics_engine_v2
 from .ai.ai_router import router as ai_router
 from .abcxyz import compute_abcxyz
+from .abc_xyz_analysis import build_abc_xyz_analysis
 from .bom import normalize_bom_rows
 from .context_pack import build_context_pack
 from .dataset_contracts import get_contract_registry_payload, get_dataset_contract
@@ -64,7 +65,7 @@ from .strategy_report import (
 )
 from .utils import ensure_datetime, to_dataframe
 
-app = FastAPI(title="Control Tower Engine", version="0.2.0")
+app = FastAPI(title="Control Tower Engine", version="0.3.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -868,6 +869,16 @@ def analytics_data_status():
             "updatedAt": bom_status.get("updated_at"),
         },
     }
+
+
+@app.get("/analytics/abc_xyz")
+def analytics_abc_xyz():
+    production_rows = analytics_store.get_dataset_rows("production")
+    sales_rows = analytics_store.get_dataset_rows("sales_orders")
+    return build_abc_xyz_analysis(
+        production_rows=production_rows,
+        sales_rows=sales_rows,
+    )
 
 
 @app.get("/analytics/v2/snapshot")
