@@ -213,12 +213,12 @@ describe("Upload to ABC/XYZ hydration flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Concluir upload e sincronizar" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Classificacao ABC/XYZ")).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "ABC Executivo" })).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Analise completa disponivel para leitura executiva e operacional.")).toBeInTheDocument();
+    expect(screen.getByText("Curva ABC Executiva - Volume Produzido (kg)")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Matriz ABC-XYZ" })).toBeInTheDocument();
     expect(getAppDataSnapshotMock).toHaveBeenCalledTimes(2);
     expect(getAbcXyzAnalysisMock).toHaveBeenCalledTimes(1);
   });
 });
-

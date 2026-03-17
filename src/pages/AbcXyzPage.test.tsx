@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import AbcXyzPage from "@/pages/AbcXyzPage";
@@ -240,12 +240,12 @@ describe("AbcXyzPage hydration and backend states", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Classificacao ABC/XYZ")).toBeInTheDocument();
-    expect(screen.getByText("Analise completa disponivel para leitura executiva e operacional.")).toBeInTheDocument();
-    expect(screen.getByText("SKUs classificados")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "ABC Executivo" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Matriz ABC-XYZ" })).toBeInTheDocument();
+    expect(screen.getByText("Curva ABC Executiva - Volume Produzido (kg)")).toBeInTheDocument();
   });
 
-  it("renders partial analysis state without empty screen", () => {
+  it("shows MTS/MTO criteria clarity in recommendation tab", () => {
     useAbcXyzAnalysisMock.mockReturnValue({
       analysis: makeAnalysis("partial"),
       loading: false,
@@ -267,8 +267,14 @@ describe("AbcXyzPage hydration and backend states", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Analise parcial disponivel. A tela segue funcional com o que foi consolidado.")).toBeInTheDocument();
-    expect(screen.getByText("Limitacoes da analise")).toBeInTheDocument();
+    const recommendationTab = screen.getByRole("tab", { name: "Recomendacoes" });
+    fireEvent.click(recommendationTab);
+
+    expect(screen.getByText(/Criterio utilizado:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Base utilizada:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Confiabilidade da recomendacao:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Limitacoes da analise:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Indicativa: recomendacao operacional baseada apenas na base de producao./i)).toBeInTheDocument();
   });
 
   it("does not expose internal technical naming in page copy", () => {

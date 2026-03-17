@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+import unicodedata
 
 import pandas as pd
 
@@ -30,6 +31,76 @@ def _dataset_label(dataset_id: str, fallback: str) -> str:
 
     label = _safe_text(entry.get("display_name"))
     return label or fallback
+
+
+def _normalize_text(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", _safe_text(value))
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    return " ".join(normalized.lower().split())
+
+
+def _to_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if pd.isna(value):
+            return None
+        return int(value)
+
+    raw = _safe_text(value)
+    if not raw:
+        return None
+    if raw.isdigit():
+        return int(raw)
+
+    parsed = _to_number(raw)
+    if parsed == 0.0 and raw not in {"0", "0,0", "0.0"}:
+        return None
+    return int(parsed)
+
+
+def _month_to_int(value: Any) -> int | None:
+    parsed = _to_int(value)
+    if parsed is not None and 1 <= parsed <= 12:
+        return parsed
+
+    month_alias = {
+        "jan": 1,
+        "janeiro": 1,
+        "feb": 2,
+        "fev": 2,
+        "fevereiro": 2,
+        "mar": 3,
+        "marco": 3,
+        "abril": 4,
+        "abr": 4,
+        "may": 5,
+        "mai": 5,
+        "maio": 5,
+        "jun": 6,
+        "junho": 6,
+        "jul": 7,
+        "julho": 7,
+        "aug": 8,
+        "ago": 8,
+        "agosto": 8,
+        "sep": 9,
+        "set": 9,
+        "setembro": 9,
+        "oct": 10,
+        "out": 10,
+        "outubro": 10,
+        "nov": 11,
+        "novembro": 11,
+        "dec": 12,
+        "dez": 12,
+        "dezembro": 12,
+    }
+    return month_alias.get(_normalize_text(value))
 
 
 def _trend_label(trend_pct: float | None) -> str:
@@ -87,6 +158,8 @@ def _prepare_production(rows: list[dict[str, Any]]) -> pd.DataFrame:
     frame["produced_quantity"] = frame["produced_quantity"].map(_to_number)
     frame["customer_name"] = frame["customer_name"].map(_safe_text)
     frame["customer_code"] = frame["customer_code"].map(_safe_text)
+    frame["month"] = frame["month"].map(_month_to_int)
+    frame["reference_year"] = frame["reference_year"].map(_to_int)
     frame["month"] = pd.to_numeric(frame["month"], errors="coerce").round().astype("Int64")
     frame["reference_year"] = pd.to_numeric(frame["reference_year"], errors="coerce").round().astype("Int64")
 
@@ -301,6 +374,11 @@ def build_abc_xyz_analysis(
         base_utilizada.append(f"{sales_base_label} para leitura de concentracao")
     else:
         limitations.append("Sem base de cliente suficiente para calcular concentracao por SKU.")
+
+    if sales_df.empty:
+        limitations.append(
+            "Recomendacao MTS/MTO baseada somente na base de producao; tratar como leitura indicativa ate integrar vendas/pedidos."
+        )
 
     total_volume = float(pivot.sum(axis=1).sum())
     total_volume_safe = total_volume if total_volume > 0 else 1.0

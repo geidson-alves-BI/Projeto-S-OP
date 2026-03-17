@@ -175,6 +175,91 @@ class AbcXyzAnalysisEndpointTests(unittest.TestCase):
         self.assertIn("Carteira comercial", " ".join(payload["base_utilizada"]))
         self.assertGreater(len(payload["clientes_disponiveis"]), 0)
 
+    def test_parses_textual_months_and_restores_xyz_variability(self) -> None:
+        production_rows: list[dict[str, object]] = []
+        month_aliases = ["jan", "fev", "mar", "abr", "mai", "jun"]
+        stable_profile = [100, 100, 100, 100, 100, 100]
+        variable_profile = [10, 200, 20, 220, 30, 210]
+
+        for month, stable_qty, variable_qty in zip(month_aliases, stable_profile, variable_profile, strict=True):
+            production_rows.append(
+                {
+                    "month": month,
+                    "reference_year": 2026,
+                    "product_code": "P1",
+                    "product_description": "Produto Estavel",
+                    "produced_quantity": float(stable_qty),
+                }
+            )
+            production_rows.append(
+                {
+                    "month": month,
+                    "reference_year": 2026,
+                    "product_code": "P2",
+                    "product_description": "Produto Variavel",
+                    "produced_quantity": float(variable_qty),
+                }
+            )
+
+        _register_dataset(self.store, dataset_id="production", rows=production_rows)
+
+        response = self.client.get("/analytics/abc_xyz")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+
+        self.assertEqual(payload["abrangencia_analise"]["meses_considerados"], 6)
+
+        products_by_sku = {item["sku"]: item for item in payload["produtos"]}
+        self.assertEqual(products_by_sku["P1"]["classe_xyz"], "X")
+        self.assertIn(products_by_sku["P2"]["classe_xyz"], {"Y", "Z"})
+        self.assertNotIn("sem_periodo", products_by_sku["P1"]["month_values"])
+        self.assertIn("2026-01", products_by_sku["P1"]["month_values"])
+
+    def test_flags_mts_mto_as_indicative_when_only_production_is_loaded(self) -> None:
+        _register_dataset(
+            self.store,
+            dataset_id="production",
+            rows=[
+                {
+                    "month": 1,
+                    "reference_year": 2026,
+                    "product_code": "P1",
+                    "product_description": "Produto 1",
+                    "produced_quantity": 120.0,
+                },
+                {
+                    "month": 2,
+                    "reference_year": 2026,
+                    "product_code": "P1",
+                    "product_description": "Produto 1",
+                    "produced_quantity": 132.0,
+                },
+                {
+                    "month": 1,
+                    "reference_year": 2026,
+                    "product_code": "P2",
+                    "product_description": "Produto 2",
+                    "produced_quantity": 85.0,
+                },
+                {
+                    "month": 2,
+                    "reference_year": 2026,
+                    "product_code": "P2",
+                    "product_description": "Produto 2",
+                    "produced_quantity": 72.0,
+                },
+            ],
+        )
+
+        response = self.client.get("/analytics/abc_xyz")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+
+        limitations = " ".join(payload["limitacoes"]).lower()
+        self.assertIn("mts/mto", limitations)
+        self.assertIn("somente na base de producao", limitations)
+        self.assertNotIn("carteira comercial", " ".join(payload["base_utilizada"]).lower())
+
 
 if __name__ == "__main__":
     unittest.main()
