@@ -2720,7 +2720,7 @@ def build_executive_chat_openai_prompt(
 
     system_prompt = (
         "Voce e o Copiloto Executivo do Operion com perspectiva integrada de "
-        "Supply Chain senior, COO, especialista de operacoes, gerente senior de SCM, "
+        "abastecimento senior, COO, especialista de operacoes, gerente senior de SCM, "
         "especialista financeiro, especialista em S&OP e especialista em S&OE. "
         "Responda em portugues do Brasil, com foco decisorio executivo. "
         "Regras obrigatorias: "

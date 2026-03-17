@@ -74,10 +74,13 @@ export default function MtsPage() {
   const datasets = Array.isArray(uploadCenter?.datasets) ? uploadCenter.datasets : [];
   const productionDataset = datasets.find((dataset) => dataset.id === "production");
   const salesOrdersDataset = datasets.find((dataset) => dataset.id === "sales_orders");
+  const bomDataset = datasets.find((dataset) => dataset.id === "bom");
   const hasProduction =
     Boolean(productionDataset?.uploaded) && productionDataset?.availability_status !== "unavailable";
   const hasSalesOrders =
     Boolean(salesOrdersDataset?.uploaded) && salesOrdersDataset?.availability_status !== "unavailable";
+  const hasBom =
+    Boolean(bomDataset?.uploaded) && bomDataset?.availability_status !== "unavailable";
   const showSalesOnlyGuidance = hasSalesOrders && !hasProduction;
 
   const filtered = useMemo(() => {
@@ -158,6 +161,10 @@ export default function MtsPage() {
   };
 
   const handleSimulateMTS = async () => {
+    if (!hasBom) {
+      setSimulationError("A simulacao MTS exige BOM carregada. A tabela MTS/MTO continua disponivel sem BOM.");
+      return;
+    }
     try {
       setSimulationLoading(true);
       setSimulationError(null);
@@ -193,7 +200,7 @@ export default function MtsPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>MTS/MTO Operacional (Produção)</BreadcrumbPage>
+            <BreadcrumbPage>MTS/MTO</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -201,13 +208,13 @@ export default function MtsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
-            <Package className="h-5 w-5 text-primary" /> MTS/MTO Operacional (Produção)
+            <Package className="h-5 w-5 text-primary" /> MTS/MTO
           </h2>
           <p className="text-xs text-muted-foreground font-mono mt-1">
-            Leitura operacional baseada em historico de producao para priorizacao e simulacao de politica MTS/MTO.
+            Leitura operacional baseada na Base Operacional para priorizacao e simulacao de politica MTS/MTO.
           </p>
           <span className="mt-2 inline-flex rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
-            Fonte principal: Produção (production)
+            Fonte principal: Base Operacional (production)
           </span>
         </div>
         <Button variant="outline" size="sm" className="font-mono text-xs" onClick={handleExport} disabled={!state}>
@@ -218,20 +225,19 @@ export default function MtsPage() {
       <AnalysisStatusPanel
         uploadCenter={uploadCenter}
         moduleKey="mts_mto"
-        title="Prontidao para MTS/MTO Operacional (Produção)"
-        description="Pre-requisitos operacionais para leitura de producao."
-        summaryOverride="Obrigatorio: production. Opcionais: customers. Opcional futuro: bom."
+        title="Prontidao para MTS/MTO"
+        description="Pre-requisitos operacionais para leitura da politica MTS/MTO."
+        summaryOverride="Obrigatorio para leitura: production. BOM e opcional para tabela, mas obrigatoria para simulacao."
         requiredDatasetIds={["production"]}
-        optionalDatasetIds={["customers"]}
-        futureOptionalDatasetIds={["bom"]}
-        primarySource="Produção (production)"
+        optionalDatasetIds={["customers", "bom"]}
+        primarySource="Base Operacional (production)"
       />
 
       {showSalesOnlyGuidance ? (
         <section className="rounded-2xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-foreground">
           Esta visao operacional requer production. Para analise baseada em vendas, use{" "}
           <Link to="/planejamento-producao" className="font-semibold text-primary underline underline-offset-2">
-            Planejamento de Demanda (Comercial)
+            Analise e Planejamento de Demanda
           </Link>
           .
         </section>
@@ -240,7 +246,7 @@ export default function MtsPage() {
       {!state ? (
         <section className="metric-card text-center py-10">
           <p className="text-sm text-muted-foreground">
-            Sem historico operacional consolidado para priorizar candidatos no MTS/MTO Operacional (Produção).
+            Sem historico operacional consolidado para priorizar candidatos no MTS/MTO.
           </p>
         </section>
       ) : (
@@ -323,6 +329,11 @@ export default function MtsPage() {
         <p className="text-sm text-muted-foreground">
           A simulacao continua nesta aba porque representa uma decisao de cenario, nao um upload primario.
         </p>
+        {!hasBom ? (
+          <div className="rounded-2xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-foreground">
+            A tabela MTS/MTO pode ser consultada sem BOM. Para executar a simulacao, carregue a BOM na Central de Upload.
+          </div>
+        ) : null}
 
         <div className="overflow-x-auto">
           <table className="data-table">
@@ -367,8 +378,8 @@ export default function MtsPage() {
 
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" className="font-mono text-xs" onClick={addSimulationRow}>Adicionar linha</Button>
-          <Button className="font-mono text-sm" onClick={handleSimulateMTS} disabled={simulationLoading}>
-            {simulationLoading ? "Simulando..." : "Simular Produção MTS"}
+          <Button className="font-mono text-sm" onClick={handleSimulateMTS} disabled={simulationLoading || !hasBom}>
+            {simulationLoading ? "Simulando..." : hasBom ? "Simular Producao MTS" : "Carregue BOM para simular"}
           </Button>
         </div>
 

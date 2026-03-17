@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   ForecastResult,
   UploadCenterStatus,
   UploadDataset,
@@ -23,24 +23,23 @@ const DATASET_KEYS: UploadDatasetKey[] = [
 ];
 
 const READINESS_LABEL_FALLBACK: Record<UploadReadinessKey, string> = {
-  overall: "Prontidao geral",
-  planning_production: "Planejamento de Demanda (Comercial)",
+  overall: "Base Operacional",
+  planning_production: "Analise e Planejamento de Demanda",
   forecast: "Forecast",
-  mts_mto: "MTS/MTO Operacional (Produção)",
+  mts_mto: "MTS/MTO",
   raw_material: "Materia-prima",
   finance: "Financeiro",
-  executive_ai: "IA Executiva",
+  executive_ai: "Chat Executivo",
 };
 
 const DATASET_USAGE_LABELS: Record<UploadDatasetKey, string> = {
-  sales_orders: "Planejamento de Demanda (Comercial)",
-  production: "MTS/MTO Operacional (Produção)",
-  raw_material_inventory:
-    "Planejamento de Demanda (Comercial) e MTS/MTO Operacional (Produção), quando aplicavel",
-  customers: "Planejamento de Demanda (Comercial) e MTS/MTO Operacional (Produção)",
-  bom: "MTS/MTO Operacional (Produção) (opcional futuro)",
-  forecast_input: "Planejamento de Demanda (Comercial) (suporte de forecast)",
-  finance_documents: "Planejamento de Demanda (Comercial) (contexto financeiro)",
+  sales_orders: "Analise e Planejamento de Demanda",
+  production: "Base Operacional e MTS/MTO",
+  raw_material_inventory: "MTS/MTO e Materia-prima, quando aplicavel",
+  customers: "Base Operacional e Analise e Planejamento de Demanda",
+  bom: "MTS/MTO (obrigatorio para simulacao)",
+  forecast_input: "Forecast e Analise e Planejamento de Demanda",
+  finance_documents: "Financeiro e Chat Executivo",
 };
 
 export function getDatasetUsageLabel(datasetId: UploadDatasetKey) {
@@ -231,6 +230,44 @@ export function resolveReadinessModule(
   }
 
   const readinessRecord = readinessNode as Record<string, unknown>;
+  if (moduleKey === "overall") {
+    const modules = Array.isArray(readinessRecord.modules) ? readinessRecord.modules : [];
+    const datasets = toDatasetKeyArray(
+      modules.flatMap((item) => {
+        if (!item || typeof item !== "object") {
+          return [];
+        }
+        return toStringArray((item as Record<string, unknown>).datasets);
+      }),
+    );
+    const missingDatasets = Array.from(
+      new Set(
+        modules.flatMap((item) => {
+          if (!item || typeof item !== "object") {
+            return [];
+          }
+          return toStringArray((item as Record<string, unknown>).missing_datasets);
+        }),
+      ),
+    );
+    const status = normalizeReadinessStatus(readinessRecord.overall_status);
+    const summary =
+      status === "ready"
+        ? "Base Operacional pronta para consumo dos modulos S&OP."
+        : status === "partial"
+          ? "Base Operacional parcial: ha modulos com cobertura incompleta."
+          : "Base Operacional indisponivel: faltam datasets essenciais.";
+
+    return {
+      key: "overall",
+      label: READINESS_LABEL_FALLBACK.overall,
+      status,
+      summary,
+      datasets,
+      missing_datasets: missingDatasets,
+    };
+  }
+
   const moduleFromRecord = readinessRecord[moduleKey];
   if (moduleFromRecord && typeof moduleFromRecord === "object") {
     return normalizeReadinessModule(moduleFromRecord, moduleKey);
@@ -357,5 +394,6 @@ export function summarizeDataset(dataset: UploadDataset | null) {
   }
   return dataset.latest_message;
 }
+
 
 

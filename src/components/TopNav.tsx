@@ -1,4 +1,4 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
+﻿import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
   ArrowUpRight,
@@ -29,11 +29,11 @@ const navSections = [
     label: "Planejamento e Operacoes",
     icon: TrendingUp,
     items: [
-      { to: "/planejamento-producao", label: "Planejamento de Demanda (Comercial)" },
-      { to: "/demanda", label: "Base operacional" },
+      { to: "/planejamento-producao", label: "Analise e Planejamento de Demanda" },
+      { to: "/demanda", label: "Base Operacional" },
       { to: "/abc-xyz", label: "ABC / XYZ" },
       { to: "/forecast", label: "Forecast" },
-      { to: "/mts", label: "MTS/MTO Operacional (Produção)" },
+      { to: "/mts", label: "MTS/MTO" },
       { to: "/complexidade", label: "Complexidade" },
     ],
   },
@@ -48,7 +48,7 @@ const navSections = [
   {
     label: "Financeiro",
     icon: BriefcaseBusiness,
-    items: [{ to: "/financeiro", label: "Investimento e valor" }],
+    items: [{ to: "/financeiro", label: "Financeiro" }],
   },
   {
     label: "Relatorios",
@@ -60,7 +60,7 @@ const navSections = [
 const directLinks = [
   { to: "/", label: "Inicio", icon: null },
   { to: "/upload", label: "Upload de Dados", icon: UploadIcon },
-  { to: "/ia", label: "IA Executiva", icon: Bot },
+  { to: "/ia", label: "Chat Executivo", icon: Bot },
 ] as const;
 
 export default function TopNav() {
@@ -221,4 +221,5 @@ export default function TopNav() {
     </header>
   );
 }
+
 

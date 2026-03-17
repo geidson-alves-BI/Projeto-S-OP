@@ -9,9 +9,13 @@ interface Props {
 }
 
 export default function PlaceholderPage({ title, description }: Props) {
-  const { state } = useAppData();
+  const { state, loading } = useAppData();
   const navigate = useNavigate();
-  useEffect(() => { if (!state) navigate("/upload"); }, [state, navigate]);
+  useEffect(() => {
+    if (!loading && !state) {
+      navigate("/upload");
+    }
+  }, [loading, state, navigate]);
 
   return (
     <div className="p-6 flex items-center justify-center min-h-[60vh]">

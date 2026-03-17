@@ -34,7 +34,8 @@ class ForecastRequest(BaseModel):
 
 
 class StrategyReportRequest(BaseModel):
-    rows: List[Dict[str, Any]]
+    rows: List[Dict[str, Any]] = Field(default_factory=list)
+    file_format: Literal["xlsx", "csv", "pdf", "excel"] = "csv"
     product_code_col: str = "product_code"
     product_name_col: str = "product_name"
     sales_col: str = "sales"

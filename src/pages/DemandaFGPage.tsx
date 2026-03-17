@@ -46,9 +46,9 @@ export default function DemandaFGPage() {
       <div className="flex items-center justify-between">
         <div className="page-header">
           <h2>
-            <BarChart3 className="h-5 w-5 text-primary" /> Supply - Demanda e historico operacional
+            <BarChart3 className="h-5 w-5 text-primary" /> Base Operacional - Demanda e historico
           </h2>
-          <p>Leitura historica da operacao, segmentacao e base para cobertura analitica.</p>
+          <p>Leitura historica da operacao e cobertura da base para os modulos S&OP.</p>
         </div>
         <Button variant="outline" size="sm" className="font-mono text-xs gap-1.5" onClick={handleExportHistorico} disabled={!state}>
           <Download className="h-3.5 w-3.5" /> Exportar CSV
@@ -58,8 +58,8 @@ export default function DemandaFGPage() {
       <AnalysisStatusPanel
         uploadCenter={uploadCenter}
         moduleKey="overall"
-        title="Cobertura operacional do modulo Supply"
-        description="A ingestao ficou centralizada em Upload de Dados. Esta aba passa a consumir a base operacional ja consolidada para leitura executiva."
+        title="Prontidao da Base Operacional"
+        description="A ingestao ficou centralizada em Upload de Dados. Esta aba consome o overall_status da base operacional consolidada no backend."
         datasetIds={["production", "sales_orders", "customers"]}
       />
 

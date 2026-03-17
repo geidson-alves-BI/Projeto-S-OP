@@ -1,5 +1,7 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import { parseFile } from "@/lib/fileParser";
+import { getAppDataSnapshot } from "@/lib/api";
+import { hydrateAppDataFromSnapshot } from "@/lib/app-data-hydration";
 import {
   prepProducao, prepClientes, mergeWithClientes,
   toWide, pipeline, concentrationMetrics, applyConcentrationAdjustment,
@@ -33,6 +35,10 @@ interface AppDataContextType {
   setFileCli: (f: File | null) => void;
   handleLoad: () => Promise<void>;
   reset: () => void;
+  hydrateFromBackend: () => Promise<boolean>;
+  /**
+   * @deprecated Fluxo legado de parse local. Preferir Upload Center + hidratação backend.
+   */
   loadProductionFile: (file: File) => Promise<{
     rowCount: number;
     columns: string[];
@@ -41,12 +47,18 @@ interface AppDataContextType {
     clientsCount: number;
     hasClientes: boolean;
   }>;
+  /**
+   * @deprecated Fluxo legado de parse local. Preferir Upload Center + hidratação backend.
+   */
   loadClientsFile: (file: File) => Promise<{
     rowCount: number;
     columns: string[];
     linkedProducts: number;
     hasProductionLoaded: boolean;
   }>;
+  /**
+   * @deprecated Fluxo legado de parse local. Preferir Upload Center + hidratação backend.
+   */
   loadRawMaterialFile: (file: File) => Promise<{
     validation: RMColumnValidation;
     rowCount: number;
@@ -79,6 +91,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [lastFGImportAt, setLastFGImportAt] = useState<string | null>(null);
   const [lastClientesImportAt, setLastClientesImportAt] = useState<string | null>(null);
   const [lastRMImportAt, setLastRMImportAt] = useState<string | null>(null);
+  const [hydratedFromBackend, setHydratedFromBackend] = useState(false);
 
   const rebuildState = useCallback((rawProd: RawRow[] | null, rawCli: RawRow[] | null) => {
     if (!rawProd || rawProd.length === 0) {
@@ -140,6 +153,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Deprecated local parse path maintained only for backward compatibility.
   const loadProductionFile = useCallback(async (file: File) => {
     setLoading(true);
     setError(null);
@@ -162,6 +176,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }
   }, [clientSourceRows, rebuildState]);
 
+  // Deprecated local parse path maintained only for backward compatibility.
   const loadClientsFile = useCallback(async (file: File) => {
     setLoading(true);
     setError(null);
@@ -189,6 +204,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }
   }, [productionSourceRows, rebuildState]);
 
+  // Deprecated local parse path maintained only for backward compatibility.
   const loadRawMaterialFile = useCallback(async (file: File) => {
     setLoading(true);
     setError(null);
@@ -218,6 +234,28 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       const message = requestError instanceof Error ? requestError.message : String(requestError);
       setError(message);
       throw requestError;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const hydrateFromBackend = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const snapshot = await getAppDataSnapshot();
+      const hydrated = hydrateAppDataFromSnapshot(snapshot);
+      setState(hydrated.state);
+      setRMData(hydrated.rmData);
+      setLastFGImportAt(hydrated.lastFGImportAt);
+      setLastClientesImportAt(hydrated.lastClientesImportAt);
+      setLastRMImportAt(hydrated.lastRMImportAt);
+      setHydratedFromBackend(true);
+      return true;
+    } catch (requestError) {
+      const message = requestError instanceof Error ? requestError.message : String(requestError);
+      setError(message);
+      return false;
     } finally {
       setLoading(false);
     }
@@ -257,22 +295,34 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reset = useCallback(() => {
-    setState(null);
     setFileProd(null);
     setFileCli(null);
-    setRMData(null);
     setProductionSourceRows(null);
     setClientSourceRows(null);
     setError(null);
+    if (hydratedFromBackend) {
+      void hydrateFromBackend();
+      return;
+    }
+    setState(null);
+    setRMData(null);
     setLastFGImportAt(null);
     setLastClientesImportAt(null);
     setLastRMImportAt(null);
-  }, []);
+  }, [hydrateFromBackend, hydratedFromBackend]);
+
+  useEffect(() => {
+    if (hydratedFromBackend) {
+      return;
+    }
+    void hydrateFromBackend();
+  }, [hydrateFromBackend, hydratedFromBackend]);
 
   return (
     <AppDataContext.Provider value={{
       state, loading, error, fileProd, fileCli,
       setFileProd, setFileCli, handleLoad, reset,
+      hydrateFromBackend,
       loadProductionFile, loadClientsFile, loadRawMaterialFile,
       rmData, setRMData: handleSetRMData,
       lastFGImportAt, lastClientesImportAt, lastRMImportAt,

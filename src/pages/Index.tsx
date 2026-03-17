@@ -30,6 +30,7 @@ interface AppState {
 }
 
 const Index = () => {
+  // Legacy entry flow preserved for compatibility. New analytics flow should use backend v2 contracts.
   const [fileProd, setFileProd] = useState<File | null>(null);
   const [fileCli, setFileCli] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);

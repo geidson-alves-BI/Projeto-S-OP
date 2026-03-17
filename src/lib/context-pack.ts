@@ -226,6 +226,8 @@ export function mergeContextPackWithLoadedData(
   state: AppState | null,
   rmData: RMData[] | null,
 ): ContextPack | null {
+  // Deprecated compatibility layer: keep only while analytics v2 frontend migration is in progress.
+  // New integrations should consume backend analytics v2 contracts directly.
   const fallback = buildContextPackFromLoadedData(state, rmData);
   if (!raw) {
     return fallback;
@@ -315,7 +317,7 @@ function buildSources(raw: ContextPack | null, state: AppState | null, rmData: R
     },
     {
       key: "mts_mto",
-      label: "MTS/MTO Operacional (Produção)",
+      label: "MTS/MTO",
       available: hasSimulation || hasStrategy,
       detail: hasSimulation || hasStrategy
         ? "Leitura operacional com sinais suficientes para decisao inicial."
@@ -408,7 +410,7 @@ function buildComponents(
     },
     {
       key: "mts_mto_strategy",
-      label: "MTS/MTO Operacional (Produção)",
+      label: "MTS/MTO",
       available: sourceFlags.hasStrategy,
       detail: sourceFlags.hasStrategy
         ? "Politica de atendimento pronta para desdobramento por SKU."

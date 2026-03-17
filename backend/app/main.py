@@ -11,6 +11,7 @@ from fastapi import File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from .analytics_v2.engine import analytics_engine_v2
 from .ai.ai_router import router as ai_router
 from .abcxyz import compute_abcxyz
 from .bom import normalize_bom_rows
@@ -27,6 +28,7 @@ from .dataset_validation import (
 )
 from .demand_forecast_engine import build_demand_forecast
 from .forecast import forecast_naive
+from .finance_documents import build_finance_documents_summary
 from .memory_store import analytics_store
 from .raw_material_forecast import build_raw_material_forecast
 from .readiness import get_readiness_summary
@@ -58,6 +60,7 @@ from .strategy_report import (
     build_strategy_report,
     export_strategy_report_csv,
     export_strategy_report_excel,
+    export_strategy_report_pdf,
 )
 from .utils import ensure_datetime, to_dataframe
 
@@ -183,11 +186,31 @@ def forecast(req: ForecastRequest):
 @app.post("/analytics/export_strategy_report")
 def export_strategy_report(
     req: StrategyReportRequest,
-    file_format: str = Query(default="csv", pattern="^(csv|excel)$"),
+    file_format: str | None = Query(default=None),
 ):
+    rows = req.rows if isinstance(req.rows, list) else []
+    if len(rows) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "rows must contain at least one record. "
+                "Send { rows: [...], file_format: 'csv' | 'xlsx' | 'pdf' }."
+            ),
+        )
+
+    body_file_format = req.file_format if "file_format" in req.model_fields_set else None
+    requested_format = (body_file_format or file_format or "csv").strip().lower()
+    if requested_format == "excel":
+        requested_format = "xlsx"
+    if requested_format not in {"csv", "xlsx", "pdf"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file_format. Use one of: csv, xlsx, pdf.",
+        )
+
     try:
         report_df = build_strategy_report(
-            rows=req.rows,
+            rows=rows,
             product_code_col=req.product_code_col,
             product_name_col=req.product_name_col,
             sales_col=req.sales_col,
@@ -197,7 +220,7 @@ def export_strategy_report(
 
     analytics_store.set_strategy_report(report_df)
 
-    if file_format == "excel":
+    if requested_format == "xlsx":
         try:
             file_bytes = export_strategy_report_excel(report_df)
         except ImportError as exc:
@@ -207,6 +230,10 @@ def export_strategy_report(
             ) from exc
         filename = "strategy_report.xlsx"
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif requested_format == "pdf":
+        file_bytes = export_strategy_report_pdf(report_df)
+        filename = "strategy_report.pdf"
+        media_type = "application/pdf"
     else:
         file_bytes = export_strategy_report_csv(report_df)
         filename = "strategy_report.csv"
@@ -530,6 +557,22 @@ def forecast_results():
     return {"items": forecast_df.to_dict(orient="records"), "rowCount": int(len(forecast_df))}
 
 
+@app.get("/analytics/finance_documents/summary")
+def finance_documents_summary():
+    manifest = analytics_store.get_dataset_manifest()
+    finance_manifest = manifest.get("finance_documents", {})
+    rows = analytics_store.get_dataset_rows("finance_documents")
+    summary = build_finance_documents_summary(rows)
+    return {
+        **summary,
+        "uploaded": bool(finance_manifest.get("uploaded", False)),
+        "availability_status": str(finance_manifest.get("availability_status", "unavailable")),
+        "uploaded_at": finance_manifest.get("uploaded_at"),
+        "filename": finance_manifest.get("filename"),
+        "document_count": int(finance_manifest.get("document_count", 0) or 0),
+    }
+
+
 @app.post("/analytics/planning_production/run")
 def planning_production_run(req: PlanningProductionRunRequest):
     try:
@@ -594,6 +637,43 @@ def planning_production_export_pdf(req: PlanningProductionExportRequest):
 @app.get("/analytics/upload_center")
 def upload_center():
     return analytics_store.get_upload_center_payload()
+
+
+@app.get("/analytics/app_data_snapshot")
+def app_data_snapshot():
+    manifest = analytics_store.get_dataset_manifest()
+    readiness_payload = get_readiness_summary(manifest)
+    dataset_ids = [
+        "production",
+        "customers",
+        "sales_orders",
+        "forecast_input",
+        "bom",
+        "raw_material_inventory",
+        "finance_documents",
+    ]
+
+    datasets: dict[str, dict[str, Any]] = {}
+    for dataset_id in dataset_ids:
+        manifest_entry = manifest.get(dataset_id, {})
+        rows = analytics_store.get_dataset_rows(dataset_id)
+        datasets[dataset_id] = {
+            "dataset_id": dataset_id,
+            "uploaded": bool(manifest_entry.get("uploaded", False)),
+            "available": bool(manifest_entry.get("available", False)),
+            "availability_status": str(manifest_entry.get("availability_status", "unavailable")),
+            "validation_status": str(manifest_entry.get("validation_status", "missing")),
+            "uploaded_at": manifest_entry.get("uploaded_at"),
+            "filename": manifest_entry.get("filename"),
+            "row_count": int(len(rows)),
+            "rows": rows,
+        }
+
+    return {
+        "datasets": datasets,
+        "readiness": readiness_payload,
+        "bom_status": analytics_store.get_bom_status(),
+    }
 
 
 @app.post("/analytics/register_structured_upload")
@@ -788,3 +868,46 @@ def analytics_data_status():
             "updatedAt": bom_status.get("updated_at"),
         },
     }
+
+
+@app.get("/analytics/v2/snapshot")
+def analytics_v2_snapshot(scope: str = Query(default="global")):
+    return analytics_engine_v2.build_snapshot(escopo=scope)
+
+
+@app.get("/analytics/v2/metrics")
+def analytics_v2_metrics(scope: str = Query(default="global")):
+    return analytics_engine_v2.list_metrics_catalog(escopo=scope)
+
+
+@app.post("/analytics/v2/metrics/compute")
+def analytics_v2_metrics_compute(payload: dict[str, Any] | None = None):
+    body = payload if isinstance(payload, dict) else {}
+    raw_metric_ids = body.get("metric_ids")
+    metric_ids = (
+        [str(metric_id).strip() for metric_id in raw_metric_ids if str(metric_id).strip()]
+        if isinstance(raw_metric_ids, list)
+        else None
+    )
+    escopo = str(body.get("escopo") or "global")
+    filtros = body.get("filtros") if isinstance(body.get("filtros"), dict) else None
+    cenario = str(body.get("cenario") or "base")
+
+    result = analytics_engine_v2.compute_metrics(
+        metric_ids=metric_ids,
+        escopo=escopo,
+        filtros=filtros,
+        cenario=cenario,
+    )
+    return {
+        "metrics": result["metrics"],
+        "metricas_calculaveis": result["metricas_calculaveis"],
+        "metricas_bloqueadas": result["metricas_bloqueadas"],
+        "engine_version": result["engine_version"],
+        "metric_registry_version": result["metric_registry_version"],
+    }
+
+
+@app.get("/analytics/v2/financial_scenarios")
+def analytics_v2_financial_scenarios(scope: str = Query(default="global")):
+    return analytics_engine_v2.build_financial_scenarios(escopo=scope)

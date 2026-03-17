@@ -52,6 +52,7 @@ function normalize(s: string): string {
 
 
 export default function ComplexidadePage() {
+  // Legacy page: still uses local parsing path and should be migrated to analytics v2 backend outputs.
   const { state } = useAppData();
   const [file, setFile] = useState<File | null>(null);
   const [data, setData] = useState<ComplexityData[] | null>(null);

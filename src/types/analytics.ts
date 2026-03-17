@@ -18,6 +18,21 @@ export type SimulationResult = {
   [key: string]: unknown;
 };
 
+export type FinanceDocumentsSummary = {
+  has_structured_rows: boolean;
+  row_count: number;
+  column_count: number;
+  numeric_columns: string[];
+  kpis: Record<string, number>;
+  kpi_sources: Record<string, string>;
+  notes: string[];
+  uploaded: boolean;
+  availability_status: UploadReadinessStatus;
+  uploaded_at: string | null;
+  filename: string | null;
+  document_count: number;
+};
+
 export type ContextPack = {
   top_products?: unknown[];
   mts_products?: unknown[];
@@ -280,10 +295,33 @@ export type UploadCenterStatus = {
   available_dataset_count: number;
   total_dataset_count: number;
   datasets: UploadDataset[];
-  readiness: Record<UploadReadinessKey, UploadReadinessItem>;
+  readiness: Readiness;
   history: UploadHistoryItem[];
   compatibility_summary: UploadCompatibilityOverview;
   contract_registry: DatasetContractRegistry;
+};
+
+export type AppDataSnapshotDataset = {
+  dataset_id: UploadDatasetKey;
+  uploaded: boolean;
+  available: boolean;
+  availability_status: UploadReadinessStatus;
+  validation_status: UploadValidationStatus;
+  uploaded_at: string | null;
+  filename: string | null;
+  row_count: number;
+  rows: Record<string, unknown>[];
+};
+
+export type AppDataSnapshot = {
+  datasets: Partial<Record<UploadDatasetKey, AppDataSnapshotDataset>>;
+  readiness: Readiness;
+  bom_status: {
+    loaded: boolean;
+    products_count: number;
+    rows_count: number;
+    updated_at: string | null;
+  };
 };
 
 export type StructuredUploadRegistrationRequest = {
@@ -672,4 +710,132 @@ export type ExecutiveContext = {
   executive_impact_of_gaps: string[];
   dre_available: boolean;
   limitations_for_future_analysis: string[];
+};
+
+export type AnalyticsV2Status = "ready" | "partial" | "unavailable";
+export type AnalyticsV2Confidence = "high" | "medium" | "low";
+export type AnalyticsV2DecisionGrade = "A" | "B" | "C" | "D";
+export type AnalyticsV2EstimateType = "documented" | "estimated" | "hybrid";
+
+export type AnalyticsV2DatasetAvailability = {
+  dataset_id: string;
+  status: AnalyticsV2Status;
+  row_count: number;
+};
+
+export type AnalyticsV2DatasetQuality = {
+  status: AnalyticsV2Status;
+  validation_status: string;
+  quality_score: number;
+  compatibility_score: number;
+  row_count: number;
+  uploaded: boolean;
+  missing_required_columns: string[];
+};
+
+export type AnalyticsV2Snapshot = {
+  datasets_disponiveis: AnalyticsV2DatasetAvailability[];
+  qualidade_por_dataset: Record<string, AnalyticsV2DatasetQuality>;
+  metricas_calculaveis: Array<{
+    metric_id: string;
+    status: AnalyticsV2Status;
+    confianca: AnalyticsV2Confidence;
+    decision_grade: AnalyticsV2DecisionGrade;
+  }>;
+  metricas_bloqueadas: Array<{
+    metric_id: string;
+    status: AnalyticsV2Status;
+    blocked_reason: string | null;
+    missing_data: string[];
+  }>;
+  readiness_v2: {
+    metrics_ready: number;
+    metrics_partial: number;
+    metrics_unavailable: number;
+    coverage_percent: number;
+    overall_status: AnalyticsV2Status;
+  };
+  resumo_executivo: string[];
+  engine_version: string;
+};
+
+export type AnalyticsV2MetricContract = {
+  metric_id: string;
+  display_name: string;
+  value: unknown;
+  formatted_value: string;
+  base_usada: string[];
+  escopo: string;
+  confianca: AnalyticsV2Confidence;
+  decision_grade: AnalyticsV2DecisionGrade;
+  missing_data: string[];
+  status: AnalyticsV2Status;
+  observacoes: string[];
+  limitations: string[];
+  calculation_method: string;
+  estimate_type: AnalyticsV2EstimateType;
+  reference_date: string;
+  engine_version: string;
+  metric_definition_version: string;
+  blocked_reason: string | null;
+};
+
+export type AnalyticsV2MetricsComputeRequest = {
+  metric_ids?: string[];
+  escopo?: string;
+  filtros?: Record<string, unknown>;
+  cenario?: string;
+};
+
+export type AnalyticsV2MetricsComputeResponse = {
+  metrics: AnalyticsV2MetricContract[];
+  metricas_calculaveis: AnalyticsV2MetricContract[];
+  metricas_bloqueadas: AnalyticsV2MetricContract[];
+  engine_version: string;
+  metric_registry_version: string;
+};
+
+export type AnalyticsV2FinancialScenario = {
+  scenario_id: "base" | "conservador" | "agressivo" | string;
+  display_name: string;
+  assumptions: Record<string, unknown>;
+  revenue: AnalyticsV2MetricContract;
+  cogs: AnalyticsV2MetricContract & {
+    components?: {
+      material_cost: number;
+      conversion_cost: number;
+      estimated_cogs: number;
+      material_cost_source?: string;
+      conversion_cost_source?: string;
+      estimated_cogs_source?: string;
+    };
+  };
+  contribution_margin: AnalyticsV2MetricContract;
+  contribution_margin_pct: AnalyticsV2MetricContract;
+  fg_working_capital: AnalyticsV2MetricContract;
+  rm_working_capital: AnalyticsV2MetricContract;
+  total_working_capital: AnalyticsV2MetricContract;
+  mts_incremental_investment: AnalyticsV2MetricContract;
+  inventory_carrying_cost: AnalyticsV2MetricContract;
+  delta_vs_base: {
+    scenario_delta_financial: AnalyticsV2MetricContract;
+    breakdown: Record<string, number>;
+  };
+  confianca: AnalyticsV2Confidence;
+  decision_grade: AnalyticsV2DecisionGrade;
+  status: AnalyticsV2Status;
+  missing_data: string[];
+  limitations: string[];
+  calculation_method: string;
+  base_usada: string[];
+  engine_version: string;
+};
+
+export type AnalyticsV2FinancialScenariosResponse = {
+  base_scenario: string;
+  escopo: string;
+  scenarios: AnalyticsV2FinancialScenario[];
+  metricas_financeiras_suportadas: string[];
+  engine_version: string;
+  generated_at: string;
 };

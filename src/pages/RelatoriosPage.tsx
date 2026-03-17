@@ -30,18 +30,18 @@ function resolveStrategyLabel(strategyFinal: unknown, strategyBase: unknown) {
 }
 
 export default function RelatoriosPage() {
-  const { state, rmData } = useAppData();
+  const { state, rmData, loading: appDataLoading } = useAppData();
   const navigate = useNavigate();
   const { refresh, loading, error, viewModel } = useContextPack(Boolean(state || rmData));
-  const [strategyLoading, setStrategyLoading] = useState<"csv" | "excel" | null>(null);
+  const [strategyLoading, setStrategyLoading] = useState<"csv" | "xlsx" | "pdf" | null>(null);
   const [strategyError, setStrategyError] = useState<string | null>(null);
   const [strategyMessage, setStrategyMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!state && !rmData) {
+    if (!appDataLoading && !state && !rmData) {
       navigate("/upload");
     }
-  }, [state, rmData, navigate]);
+  }, [appDataLoading, state, rmData, navigate]);
 
   const products = useMemo(() => (Array.isArray(state?.products) ? state.products : []), [state]);
   const monthCols = useMemo(() => (Array.isArray(state?.monthCols) ? state.monthCols : []), [state]);
@@ -83,9 +83,9 @@ export default function RelatoriosPage() {
         ready: isAvailable("Historico mensal"),
       },
       {
-        name: "MTS/MTO Operacional (Produção)",
+        name: "MTS/MTO",
         description: "Recomendacao de politica de atendimento e estrategia de abastecimento.",
-        ready: isAvailable("MTS/MTO Operacional (Produção)"),
+        ready: isAvailable("MTS/MTO"),
       },
       {
         name: "Materia-prima",
@@ -101,6 +101,16 @@ export default function RelatoriosPage() {
   }, [viewModel.componentsAvailable]);
 
   const readyBlocks = reportBlocks.filter((block) => block.ready).length;
+
+  const strategyRows = useMemo(
+    () =>
+      products.map((product) => ({
+        product_code: product.codigoProduto,
+        product_name: product.denominacao,
+        sales: Number.isFinite(product.volumeAnual) ? product.volumeAnual : 0,
+      })),
+    [products],
+  );
 
   const handleExportPack = () => {
     const sheets: { name: string; rows: string[][] }[] = [];
@@ -238,13 +248,33 @@ export default function RelatoriosPage() {
     downloadAllSheets(sheets);
   };
 
-  const handleExportStrategy = async (format: "csv" | "excel") => {
+  const handleExportStrategy = async (format: "csv" | "xlsx" | "pdf") => {
+    if (strategyRows.length === 0) {
+      setStrategyMessage(null);
+      setStrategyError("Nao ha linhas para exportar. Carregue a base operacional antes de exportar o relatorio estrategico.");
+      return;
+    }
     try {
       setStrategyError(null);
-      setStrategyMessage(format === "csv" ? "Exportando CSV..." : "Exportando Excel...");
+      if (format === "pdf") {
+        setStrategyMessage("Exportando PDF...");
+      } else if (format === "xlsx") {
+        setStrategyMessage("Exportando XLSX...");
+      } else {
+        setStrategyMessage("Exportando CSV...");
+      }
       setStrategyLoading(format);
-      const fallbackName = format === "excel" ? "strategy_report.xlsx" : "strategy_report.csv";
-      await downloadFileFromPost("/analytics/export_strategy_report", { file_format: format }, fallbackName);
+      const fallbackName =
+        format === "xlsx"
+          ? "strategy_report.xlsx"
+          : format === "pdf"
+            ? "strategy_report.pdf"
+            : "strategy_report.csv";
+      await downloadFileFromPost(
+        "/analytics/export_strategy_report",
+        { rows: strategyRows, file_format: format },
+        fallbackName,
+      );
       setStrategyMessage("Download iniciado");
     } catch (exportError) {
       setStrategyMessage(null);
@@ -351,14 +381,17 @@ export default function RelatoriosPage() {
             <h2 className="text-xl font-semibold text-foreground">Relatorio estrategico do backend</h2>
           </div>
           <p className="text-sm leading-6 text-muted-foreground">
-            Exporte a classificacao estrategica em CSV ou Excel com base no contexto analitico consolidado no backend.
+            Exporte a classificacao estrategica em CSV, XLSX ou PDF com base no contexto analitico consolidado no backend.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => void handleExportStrategy("csv")} variant="secondary" disabled={strategyLoading !== null}>
               {strategyLoading === "csv" ? "Exportando..." : "Exportar CSV"}
             </Button>
-            <Button onClick={() => void handleExportStrategy("excel")} variant="secondary" disabled={strategyLoading !== null}>
-              {strategyLoading === "excel" ? "Exportando..." : "Exportar Excel"}
+            <Button onClick={() => void handleExportStrategy("xlsx")} variant="secondary" disabled={strategyLoading !== null}>
+              {strategyLoading === "xlsx" ? "Exportando..." : "Exportar XLSX"}
+            </Button>
+            <Button onClick={() => void handleExportStrategy("pdf")} variant="secondary" disabled={strategyLoading !== null}>
+              {strategyLoading === "pdf" ? "Exportando..." : "Exportar PDF"}
             </Button>
           </div>
           {strategyMessage && <p className="text-xs font-mono text-muted-foreground">{strategyMessage}</p>}

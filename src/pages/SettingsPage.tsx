@@ -696,7 +696,7 @@ export default function SettingsPage() {
 
               <div className="grid gap-3">
                 <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Base operacional</p>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Base Operacional</p>
                   <p className="mt-2 text-sm text-foreground">{state ? `${state.products.length} SKUs ativos` : "Sem dados carregados"}</p>
                   <p className="mt-1 text-xs text-muted-foreground">Ultima importacao: {formatTimestamp(lastFGImportAt)}</p>
                 </div>

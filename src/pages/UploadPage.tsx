@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+﻿import { useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -89,9 +89,7 @@ export default function UploadPage() {
   const {
     loading: contextLoading,
     error: contextError,
-    loadProductionFile,
-    loadClientsFile,
-    loadRawMaterialFile,
+    hydrateFromBackend,
   } = useAppData();
   const { uploadCenter, loading, error, refresh } = useUploadCenter(true);
 
@@ -188,11 +186,11 @@ export default function UploadPage() {
         };
       }
 
-      const result = await loadProductionFile(productionFile);
+      await hydrateFromBackend();
       setProductionFile(null);
       return {
         tone: "success",
-        message: `${result.productsCount} produtos e ${result.monthCount} meses liberados para MTS/MTO Operacional (Produção).`,
+        message: `${response.validation.row_count} linhas validadas e sincronizadas para Base Operacional.`,
       };
     });
   };
@@ -211,7 +209,7 @@ export default function UploadPage() {
         tone: toneFromValidation(response.validation),
         message: messageFromValidation(
           response.validation,
-          "Carteira comercial validada e pronta para Planejamento de Demanda (Comercial).",
+          "Carteira comercial validada e pronta para Analise e Planejamento de Demanda.",
         ),
       };
     });
@@ -231,13 +229,11 @@ export default function UploadPage() {
         };
       }
 
-      const result = await loadClientsFile(customersFile);
+      await hydrateFromBackend();
       setCustomersFile(null);
       return {
         tone: "success",
-        message: result.hasProductionLoaded
-          ? "Clientes conectados ao historico para leitura de concentracao comercial."
-          : "Clientes registrados; a conexao completa acontece quando a base de Produção estiver carregada.",
+        message: "Clientes sincronizados com a Base Operacional consolidada no backend.",
       };
     });
   };
@@ -296,17 +292,11 @@ export default function UploadPage() {
         };
       }
 
-      const result = await loadRawMaterialFile(rawMaterialFile);
-      if (!result.validation.valid) {
-        return {
-          tone: "error",
-          message: `Upload registrado com pendencia. Faltando: ${result.validation.missing.join(", ")}.`,
-        };
-      }
+      await hydrateFromBackend();
       setRawMaterialFile(null);
       return {
         tone: "success",
-        message: `${result.rowCount} linhas de estoque de materia-prima prontas para cobertura e risco.`,
+        message: `${response.validation.row_count} linhas de materia-prima sincronizadas para cobertura e risco.`,
       };
     });
   };
@@ -338,8 +328,8 @@ export default function UploadPage() {
       onUpload: handleProductionUpload,
       loading: Boolean(datasetLoading.production),
       feedback: feedback.production,
-      actionLabel: "Atualizar Produção",
-      usedIn: "MTS/MTO Operacional (Produção)",
+      actionLabel: "Atualizar producao",
+      usedIn: "Base Operacional e MTS/MTO",
     },
     {
       key: "sales_orders",
@@ -350,7 +340,7 @@ export default function UploadPage() {
       loading: Boolean(datasetLoading.sales_orders),
       feedback: feedback.sales_orders,
       actionLabel: "Atualizar vendas",
-      usedIn: "Planejamento de Demanda (Comercial)",
+      usedIn: "Analise e Planejamento de Demanda",
     },
     {
       key: "customers",
@@ -361,7 +351,7 @@ export default function UploadPage() {
       loading: Boolean(datasetLoading.customers),
       feedback: feedback.customers,
       actionLabel: "Atualizar clientes",
-      usedIn: "Planejamento de Demanda (Comercial) e MTS/MTO Operacional (Produção)",
+      usedIn: "Base Operacional e Analise e Planejamento de Demanda",
     },
     {
       key: "bom",
@@ -372,7 +362,7 @@ export default function UploadPage() {
       loading: Boolean(datasetLoading.bom),
       feedback: feedback.bom,
       actionLabel: "Atualizar estrutura",
-      usedIn: "MTS/MTO Operacional (Produção) (opcional futuro)",
+      usedIn: "MTS/MTO (obrigatorio para simulacao)",
     },
     {
       key: "raw_material_inventory",
@@ -383,7 +373,7 @@ export default function UploadPage() {
       loading: Boolean(datasetLoading.raw_material_inventory),
       feedback: feedback.raw_material_inventory,
       actionLabel: "Atualizar estoque MP",
-      usedIn: "Planejamento de Demanda (Comercial) e MTS/MTO Operacional (Produção), quando aplicavel",
+      usedIn: "MTS/MTO e Materia-prima, quando aplicavel",
     },
     {
       key: "finance_documents",
@@ -396,7 +386,7 @@ export default function UploadPage() {
       actionLabel: "Anexar documentos",
       description:
         "Formatos aceitos: .pdf, .xlsx, .xls, .csv, .png, .jpg, .jpeg, .webp, .txt, .docx",
-      usedIn: "Financeiro e IA Executiva",
+      usedIn: "Financeiro e Chat Executivo",
     },
     {
       key: "forecast_input",
@@ -407,7 +397,7 @@ export default function UploadPage() {
       loading: Boolean(datasetLoading.forecast_input),
       feedback: feedback.forecast_input,
       actionLabel: "Atualizar forecast",
-      usedIn: "Forecast e IA Executiva",
+      usedIn: "Forecast e Chat Executivo",
     },
   ];
 
@@ -870,7 +860,7 @@ export default function UploadPage() {
                     <p className="mt-2 text-sm text-muted-foreground">
                       Cada upload registra contrato oficial, colunas reconhecidas, aliases aceitos,
                       impacto analitico, lacunas de qualidade e nivel de confianca para a camada de
-                      IA executiva.
+                      Chat Executivo.
                     </p>
                   </div>
                 </article>
@@ -989,3 +979,4 @@ export default function UploadPage() {
     </PageTransition>
   );
 }
+

@@ -26,7 +26,7 @@ import type {
 } from "@/types/analytics";
 
 const PERSONA_LABEL: Record<AIPersona, string> = {
-  SUPPLY: "Diretor Supply Chain",
+  SUPPLY: "Diretor de Operacoes",
   CFO: "CFO",
   CEO: "CEO",
   COO: "COO",
@@ -303,10 +303,10 @@ export default function AIPage() {
           />
           <div className="relative mx-auto max-w-3xl space-y-5 text-center">
             <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] font-mono uppercase tracking-[0.28em] text-primary">
-              IA Executiva
+              Chat Executivo
             </span>
             <div className="space-y-3">
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">A IA Executiva interpreta o contexto consolidado do negocio</h1>
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">O Chat Executivo interpreta o contexto consolidado do negocio</h1>
               <p className="mx-auto max-w-2xl text-sm leading-6 text-muted-foreground">
                 Antes de gerar leituras executivas, o Operion precisa montar o contexto analitico com dados de
                 operacao. Carregue as bases para liberar o pacote de contexto que alimenta IA e relatorios.
@@ -361,12 +361,12 @@ export default function AIPage() {
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-4">
             <span className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] font-mono uppercase tracking-[0.28em] text-primary">
-              IA Executiva
+              Chat Executivo
             </span>
             <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">IA Executiva com leitura unica por persona</h1>
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">Chat Executivo com leitura unica por persona</h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                Quanto mais modulos analiticos entram no contexto, maior a qualidade das recomendacoes para Supply,
+                Quanto mais modulos analiticos entram no contexto, maior a qualidade das recomendacoes para Operacoes,
                 CFO, CEO e COO. Sem contexto consolidado, a interpretacao fica limitada.
               </p>
             </div>
@@ -468,7 +468,7 @@ export default function AIPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="SUPPLY">Diretor Supply Chain</SelectItem>
+                  <SelectItem value="SUPPLY">Diretor de Operacoes</SelectItem>
                   <SelectItem value="CFO">CFO</SelectItem>
                   <SelectItem value="CEO">CEO</SelectItem>
                   <SelectItem value="COO">COO</SelectItem>

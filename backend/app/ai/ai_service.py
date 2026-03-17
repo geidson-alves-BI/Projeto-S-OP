@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from ..analytics_v2.engine import analytics_engine_v2
 from ..context_pack import build_context_pack
 from ..memory_store import analytics_store
 from ..schemas import (
@@ -59,7 +60,7 @@ _AVAILABLE_INPUT_LABELS: dict[str, str] = {
 }
 
 _PERSONA_IMPROVEMENT_TITLE: dict[str, str] = {
-    "SUPPLY": "Como melhorar o Operion para Supply",
+    "SUPPLY": "Como melhorar o Operion para Abastecimento e Operacoes",
     "CFO": "Como melhorar o Operion para analise financeira",
     "CEO": "Como melhorar o Operion para visao estrategica",
     "COO": "Como melhorar o Operion para visao operacional",
@@ -78,8 +79,8 @@ _PERSONA_IMPROVEMENT_SUGGESTIONS: dict[str, dict[str, str]] = {
     "SUPPLY": {
         "forecast_summary": "Adicionar forecast consolidado e pedidos futuros para melhorar leitura de variabilidade, necessidade de compra e risco de ruptura.",
         "raw_material_impact": "Integrar materia-prima, estoque atual e BOM para expor cobertura de insumos, criticidade e lead time de abastecimento.",
-        "financial_impact": "Trazer custo de compra e custo de producao para priorizar riscos de supply tambem pelo impacto economico.",
-        "__extra_1__": "Incluir lead times de fornecedor, estoque atual por SKU e pedidos em aberto para elevar a robustez da leitura de Supply.",
+        "financial_impact": "Trazer custo de compra e custo de producao para priorizar riscos de abastecimento tambem pelo impacto economico.",
+        "__extra_1__": "Incluir lead times de fornecedor, estoque atual por SKU e pedidos em aberto para elevar a robustez da leitura de abastecimento.",
         "__extra_2__": "Adicionar capacidade produtiva e restricoes de recursos para separar gargalo de compra, producao e atendimento.",
     },
     "CFO": {
@@ -104,6 +105,20 @@ _PERSONA_IMPROVEMENT_SUGGESTIONS: dict[str, dict[str, str]] = {
         "__extra_2__": "Conectar disponibilidade de insumos, ordens futuras e gargalos de producao para reforcar continuidade da execucao.",
     },
 }
+
+_FACTUAL_INTENT_METRIC_IDS: dict[str, list[str]] = {
+    "production_total_by_product": ["production_volume"],
+    "production_by_month_for_product": ["production_volume", "production_trend"],
+    "abc_xyz_by_product": ["abc_operational", "xyz_operational"],
+    "sales_total_by_product": ["sales_volume", "product_mix"],
+    "sales_total_by_customer": ["sales_volume", "customer_mix"],
+    "customer_products_last_year": ["product_mix", "customer_mix", "sales_volume"],
+    "stock_lookup_by_material_or_product": ["raw_material_coverage", "rupture_risk", "excess_risk"],
+}
+
+_CONFIDENCE_RANK: dict[str, int] = {"low": 1, "medium": 2, "high": 3}
+_FACTUAL_PROVIDER_NAME = "analytics_v2"
+_FACTUAL_MODEL_NAME = "analytics_v2_metrics_compute"
 
 
 class AIService:
@@ -305,6 +320,231 @@ class AIService:
     def _load_current_context_pack(self) -> dict[str, Any]:
         return build_context_pack(analytics_store.get_session_snapshot())
 
+    def _resolve_factual_metric_ids(self, intent: str) -> list[str]:
+        mapped = _FACTUAL_INTENT_METRIC_IDS.get(intent, [])
+        result: list[str] = []
+        for metric_id in mapped:
+            metric_id_text = str(metric_id or "").strip()
+            if metric_id_text and metric_id_text not in result:
+                result.append(metric_id_text)
+        return result
+
+    def _resolve_factual_scope_and_filters(
+        self,
+        *,
+        intent: str,
+        entities: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
+        scope = "global"
+        if intent in {"production_total_by_product", "sales_total_by_product", "abc_xyz_by_product"}:
+            scope = "product"
+        elif intent == "production_by_month_for_product":
+            scope = "monthly"
+        elif intent in {"sales_total_by_customer", "customer_products_last_year"}:
+            scope = "customer"
+        elif intent == "stock_lookup_by_material_or_product":
+            scope = "material"
+
+        product_code = str(entities.get("product_code") or "").strip()
+        material_code = str(entities.get("material_code") or "").strip()
+        customer_code = str(entities.get("customer_code") or "").strip()
+
+        filtros: dict[str, Any] = {}
+        product_codes: list[str] = []
+        if product_code:
+            product_codes.append(product_code)
+        if material_code:
+            product_codes.append(material_code)
+        if product_codes:
+            filtros["product_codes"] = list(dict.fromkeys(product_codes))
+        if customer_code:
+            filtros["customer_codes"] = [customer_code]
+        return scope, filtros
+
+    def _rank_to_confidence(self, rank: int) -> str:
+        if rank >= 3:
+            return "high"
+        if rank == 2:
+            return "medium"
+        return "low"
+
+    def _build_factual_v2_payload(
+        self,
+        *,
+        message: str,
+        fallback_payload: dict[str, Any],
+        context_used_fallback: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[str]]:
+        del message
+        warnings: list[str] = []
+        payload = dict(fallback_payload)
+
+        intent = str(context_used_fallback.get("intent") or "")
+        entities = (
+            context_used_fallback.get("entities")
+            if isinstance(context_used_fallback.get("entities"), dict)
+            else {}
+        )
+        metric_ids = self._resolve_factual_metric_ids(intent)
+        scope, filtros = self._resolve_factual_scope_and_filters(intent=intent, entities=entities)
+
+        if not metric_ids:
+            warnings.append(f"Intent factual sem mapeamento v2: {intent or 'unknown_intent'}.")
+            limitations = list(dict.fromkeys([
+                *[str(item) for item in payload.get("limitations", []) if str(item).strip()],
+                "Intent factual sem metrica v2 mapeada; fallback contextual aplicado.",
+            ]))
+            payload["limitations"] = limitations[:10]
+            payload["partial"] = True
+            blocks = payload.get("blocks")
+            if isinstance(blocks, dict):
+                evidence = blocks.get("evidence")
+                evidence_list = [str(item) for item in evidence if str(item).strip()] if isinstance(evidence, list) else []
+                evidence_list.append("metric_ids_v2: nenhum")
+                blocks["evidence"] = evidence_list[:8]
+                payload["blocks"] = blocks
+            return payload, warnings
+
+        result = analytics_engine_v2.compute_metrics(
+            metric_ids=metric_ids,
+            escopo=scope,
+            filtros=filtros or None,
+            cenario="base",
+        )
+        metric_by_id = {
+            str(metric.get("metric_id") or ""): metric
+            for metric in result.get("metrics", [])
+            if isinstance(metric, dict)
+        }
+        ordered_metrics = [metric_by_id[item] for item in metric_ids if item in metric_by_id]
+        missing_metric_ids = [item for item in metric_ids if item not in metric_by_id]
+        if missing_metric_ids:
+            warnings.append("Metricas v2 nao retornadas: " + ", ".join(missing_metric_ids))
+
+        primary_metric = next(
+            (metric for metric in ordered_metrics if str(metric.get("status")) != "unavailable"),
+            ordered_metrics[0] if ordered_metrics else None,
+        )
+
+        limitations: list[str] = []
+        missing_data: list[str] = []
+        data_points: list[dict[str, Any]] = []
+        confidence_rank = 3
+        has_partial = False
+        for metric in ordered_metrics:
+            status = str(metric.get("status") or "unavailable")
+            if status != "ready":
+                has_partial = True
+            confidence = str(metric.get("confianca") or "low")
+            confidence_rank = min(confidence_rank, _CONFIDENCE_RANK.get(confidence, 1))
+            limitations.extend([str(item) for item in metric.get("limitations", []) if str(item).strip()])
+            missing_data.extend([str(item) for item in metric.get("missing_data", []) if str(item).strip()])
+
+            data_points.append({"label": f"{metric.get('metric_id')}_value", "value": metric.get("value")})
+            data_points.append({"label": f"{metric.get('metric_id')}_formatted", "value": metric.get("formatted_value")})
+            data_points.append({"label": f"{metric.get('metric_id')}_status", "value": status})
+
+        limitations.extend([str(item) for item in payload.get("limitations", []) if str(item).strip()])
+        missing_data.extend([str(item) for item in payload.get("missing_data", []) if str(item).strip()])
+        if missing_metric_ids:
+            limitations.append("Metricas v2 nao retornadas: " + ", ".join(missing_metric_ids))
+        limitations = list(dict.fromkeys(limitations))
+        missing_data = list(dict.fromkeys(missing_data))
+
+        confidence = self._rank_to_confidence(confidence_rank)
+        partial = bool(has_partial or missing_metric_ids or missing_data)
+        if partial and confidence == "high":
+            confidence = "medium"
+
+        if primary_metric is None:
+            direct_answer = "Nao foi possivel retornar metrica factual pela camada analytics v2 para esta pergunta."
+            base_usada: list[str] = []
+            decision_grade = "D"
+            formatted_value = "N/A"
+            primary_escopo = scope
+            primary_value: Any = None
+        else:
+            display_name = str(primary_metric.get("display_name") or primary_metric.get("metric_id") or "metrica")
+            formatted_value = str(primary_metric.get("formatted_value") or "N/A")
+            direct_answer = f"Valor principal ({display_name}): {formatted_value}."
+            base_usada = [
+                str(item)
+                for item in primary_metric.get("base_usada", [])
+                if str(item).strip()
+            ]
+            decision_grade = str(primary_metric.get("decision_grade") or "D")
+            primary_escopo = str(primary_metric.get("escopo") or scope)
+            primary_value = primary_metric.get("value")
+
+        summary_points = [
+            {"label": "valor", "value": primary_value},
+            {"label": "base_usada", "value": base_usada},
+            {"label": "escopo", "value": primary_escopo},
+            {"label": "confianca", "value": confidence},
+            {"label": "decision_grade", "value": decision_grade},
+            {"label": "limitations", "value": limitations[:3]},
+        ]
+        data_points = summary_points + data_points
+
+        evidence = [
+            f"valor: {formatted_value}",
+            "base_usada: " + (", ".join(base_usada) if base_usada else "sem base declarada"),
+            f"escopo: {primary_escopo}",
+            f"confianca: {confidence}",
+            f"decision_grade: {decision_grade}",
+        ]
+        for metric in ordered_metrics[:4]:
+            evidence.append(
+                f"{metric.get('metric_id')}: {metric.get('formatted_value')} "
+                f"(status={metric.get('status')}, confianca={metric.get('confianca')}, "
+                f"decision_grade={metric.get('decision_grade')})"
+            )
+
+        blocks = {
+            "direct_answer": direct_answer,
+            "evidence": evidence[:8],
+            "risks_limitations": limitations[:8],
+            "executive_recommendation": [
+                "Se quiser, detalho o mesmo indicador em outro escopo ou cenario financeiro."
+            ],
+        }
+
+        payload.update(
+            {
+                "answer": "\n\n".join(
+                    [
+                        f"Resposta direta:\n{direct_answer}",
+                        "Evidencias / base utilizada:\n- " + "\n- ".join(blocks["evidence"]),
+                        "Riscos ou limitacoes:\n- "
+                        + ("\n- ".join(limitations[:3]) if limitations else "Sem limitacoes criticas nesta leitura."),
+                    ]
+                ),
+                "blocks": blocks,
+                "confidence": confidence,
+                "partial": partial,
+                "limitations": limitations[:10],
+                "missing_data": missing_data[:10],
+                "data_points": data_points[:12],
+                "generated_at": fallback_payload.get("generated_at"),
+            }
+        )
+
+        context_used = payload.get("context_used")
+        if not isinstance(context_used, dict):
+            context_used = {}
+        context_used["factual_v2"] = {
+            "intent": intent,
+            "metric_ids_requested": metric_ids,
+            "metric_ids_returned": [str(item.get("metric_id")) for item in ordered_metrics],
+            "metric_ids_missing": missing_metric_ids,
+            "escopo": scope,
+            "filtros": filtros,
+            "engine_version": result.get("engine_version"),
+            "metric_registry_version": result.get("metric_registry_version"),
+        }
+        payload["context_used"] = context_used
+        return payload, warnings
+
     def executive_chat(self, request: ExecutiveChatRequest) -> ExecutiveChatResponse:
         planning_result = (
             analytics_store.get_planning_production_result()
@@ -343,7 +583,23 @@ class AIService:
         allow_openai_for_query = query_mode != "factual"
 
         if not allow_openai_for_query:
-            fallback_reason = "factual_rule_based"
+            fallback_reason = "factual_analytics_v2"
+            try:
+                payload, parsing_warnings = self._build_factual_v2_payload(
+                    message=request.message,
+                    fallback_payload=fallback_payload,
+                    context_used_fallback=context_used_fallback,
+                )
+                provider_used = _FACTUAL_PROVIDER_NAME
+                model_used = _FACTUAL_MODEL_NAME
+                fallback_triggered = False
+                fallback_reason = None
+            except Exception:
+                logger.exception("Falha no factual v2; fallback para rule-based factual.")
+                fallback_triggered = True
+                fallback_reason = "factual_v2_error"
+                provider_used = "rule_based"
+                model_used = FALLBACK_MODEL_NAME
 
         openai_provider = self._build_openai_provider(snapshot)
         if allow_openai_for_query and snapshot.provider == "openai" and openai_provider is not None:

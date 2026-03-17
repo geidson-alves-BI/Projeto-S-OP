@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
@@ -51,52 +51,52 @@ def _calculate_module_readiness(
 ANALYTICAL_MODULES = {
     "planning_production": {
         "key": "planning_production",
-        "label": "Análise e Planejamento de Demanda",
+        "label": "Analise e Planejamento de Demanda",
         "required": ["sales_orders"],
         "optional": ["customers", "raw_material_inventory", "finance_documents", "forecast_input"],
-        "description": "Consolida forecast, crescimento comercial e cenarios MTS/MTU para decisao executiva.",
+        "description": "Consolida forecast, crescimento comercial e cenarios MTS/MTO para decisao executiva.",
     },
     "forecast": {
         "key": "forecast",
-        "label": "Forecast de Demanda",
+        "label": "Forecast",
         "required": ["production"],
         "optional": ["sales_orders", "forecast_input"],
-        "description": "Capacidade de prever a demanda futura com base em dados históricos e comerciais.",
+        "description": "Capacidade de prever a demanda futura com base em dados historicos e comerciais.",
     },
     "mts_mto": {
         "key": "mts_mto",
-        "label": "Política MTS/MTO",
-        "required": ["production", "bom"],
-        "optional": ["customers", "forecast_input"],
-        "description": "Define a estratégia de produção (Make-to-Stock ou Make-to-Order) para cada produto.",
+        "label": "MTS/MTO",
+        "required": ["production"],
+        "optional": ["customers", "forecast_input", "bom"],
+        "description": "Leitura da politica MTS/MTO com simulacao condicionada ao carregamento da BOM.",
     },
     "raw_material": {
         "key": "raw_material",
-        "label": "Gestão de Matéria-Prima",
+        "label": "Materia-prima",
         "required": ["bom", "raw_material_inventory"],
         "optional": ["forecast_input"],
-        "description": "Análise de cobertura, risco e necessidade de compra de insumos.",
+        "description": "Analise de cobertura, risco e necessidade de compra de insumos.",
     },
     "finance": {
         "key": "finance",
-        "label": "Análise Financeira",
+        "label": "Financeiro",
         "required": ["finance_documents"],
         "optional": ["bom", "raw_material_inventory", "sales_orders"],
-        "description": "Visão econômica do negócio, incluindo custos, margens e projeções.",
+        "description": "Visao economica do negocio, incluindo custos, margens e projecoes.",
     },
     "executive_ai": {
         "key": "executive_ai",
-        "label": "IA Executiva",
+        "label": "Chat Executivo",
         "required": ["production", "bom", "finance_documents"],
         "optional": ["sales_orders", "customers", "raw_material_inventory", "forecast_input"],
-        "description": "Capacidade de IA para fornecer insights e recomendações estratégicas.",
+        "description": "Capacidade de chat executivo para fornecer insights e recomendacoes estrategicas.",
     },
     "integrated_vision": {
         "key": "integrated_vision",
-        "label": "Visão Integrada do Negócio",
+        "label": "Visao Integrada do Negocio",
         "required": ["production", "sales_orders", "bom", "raw_material_inventory", "finance_documents"],
         "optional": [],
-        "description": "Visão completa e integrada de todas as áreas do negócio.",
+        "description": "Visao completa e integrada de todas as areas do negocio.",
     },
 }
 
@@ -136,4 +136,5 @@ def get_readiness_summary(manifest: dict[str, dict[str, Any]]) -> dict[str, Any]
         "overall_confidence": overall_confidence,
         "modules": list(modules.values()),
     }
+
 

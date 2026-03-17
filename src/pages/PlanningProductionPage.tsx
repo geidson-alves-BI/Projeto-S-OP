@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Download, Factory, RefreshCcw, ShieldAlert, BrainCircuit } from "lucide-react";
 import {
@@ -510,7 +510,7 @@ export default function PlanningProductionPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Planejamento de Demanda (Comercial)</BreadcrumbPage>
+            <BreadcrumbPage>Analise e Planejamento de Demanda</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -518,10 +518,10 @@ export default function PlanningProductionPage() {
       <section className="metric-card flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <h2 className="text-lg font-bold font-mono text-foreground flex items-center gap-2">
-            <Factory className="h-5 w-5 text-primary" /> Planejamento de Demanda (Comercial)
+            <Factory className="h-5 w-5 text-primary" /> Analise e Planejamento de Demanda
           </h2>
           <p className="text-xs text-muted-foreground font-mono">
-            Leitura comercial de demanda, crescimento, risco e decisao MTS/MTU no planning executivo.
+            Leitura comercial de demanda, crescimento, risco e decisao MTS/MTO no planning executivo.
           </p>
           <span className="inline-flex rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
             Fonte principal: Vendas/Pedidos (sales_orders)
@@ -553,7 +553,7 @@ export default function PlanningProductionPage() {
       <AnalysisStatusPanel
         uploadCenter={uploadCenter}
         moduleKey="planning_production"
-        title="Prontidao para Planejamento de Demanda (Comercial)"
+        title="Prontidao para Analise e Planejamento de Demanda"
         description="Pre-requisitos comerciais para liberar a leitura de demanda."
         summaryOverride="Obrigatorio: sales_orders. Opcionais: customers e raw_material_inventory."
         requiredDatasetIds={["sales_orders"]}
@@ -565,7 +565,7 @@ export default function PlanningProductionPage() {
         <section className="rounded-2xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-foreground">
           A base de producao foi carregada com sucesso, mas este modulo usa sales_orders. Para usar producao, acesse{" "}
           <Link to="/mts" className="font-semibold text-primary underline underline-offset-2">
-            MTS/MTO Operacional (Produção)
+            MTS/MTO
           </Link>
           .
         </section>
@@ -702,7 +702,7 @@ export default function PlanningProductionPage() {
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground font-mono block mb-1">Cobertura MTU (dias)</label>
+            <label className="text-xs text-muted-foreground font-mono block mb-1">Cobertura MTO (dias)</label>
             <input
               type="number"
               min={1}
@@ -1048,7 +1048,7 @@ export default function PlanningProductionPage() {
           </section>
 
           <section className="metric-card space-y-3">
-            <h3 className="text-sm font-semibold font-mono">Cenario MTS e MTU (decisao)</h3>
+            <h3 className="text-sm font-semibold font-mono">Cenario MTS e MTO (decisao)</h3>
             <div className="overflow-x-auto max-h-[360px]">
               <table className="data-table">
                 <thead>
@@ -1058,7 +1058,7 @@ export default function PlanningProductionPage() {
                     <th>Estoque</th>
                     <th>Cobertura (dias)</th>
                     <th>MTS recomendado</th>
-                    <th>MTU recomendado</th>
+                    <th>MTO recomendado</th>
                     <th>Nec. compra?</th>
                     <th>Valor proj. U$</th>
                     <th>Politica sugerida</th>
@@ -1275,4 +1275,5 @@ export default function PlanningProductionPage() {
     </PageTransition>
   );
 }
+
 

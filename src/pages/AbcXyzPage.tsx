@@ -14,10 +14,14 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { toWide, pipeline } from "@/lib/pcpEngine";
 
 export default function AbcXyzPage() {
-  const { state } = useAppData();
+  const { state, loading } = useAppData();
   const navigate = useNavigate();
 
-  useEffect(() => { if (!state) navigate("/upload"); }, [state, navigate]);
+  useEffect(() => {
+    if (!loading && !state) {
+      navigate("/upload");
+    }
+  }, [loading, state, navigate]);
 
   const [topN, setTopN] = useState(40);
   const [estratFilter, setEstratFilter] = useState("Todos");

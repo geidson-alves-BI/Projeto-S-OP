@@ -1,10 +1,15 @@
 import type {
   AIIntegrationConfigRequest,
   AIIntegrationConfigResponse,
+  AppDataSnapshot,
   AnalyticsDataStatus,
   AIInterpretRequest,
   AIInterpretResponse,
   AITestConnectionResponse,
+  AnalyticsV2FinancialScenariosResponse,
+  AnalyticsV2MetricsComputeRequest,
+  AnalyticsV2MetricsComputeResponse,
+  AnalyticsV2Snapshot,
   ContextPack,
   ExecutiveChatRequest,
   ExecutiveChatContextResponse,
@@ -13,6 +18,7 @@ import type {
   DatasetContractRegistry,
   DatasetCompatibilitySummary,
   ExecutiveContext,
+  FinanceDocumentsSummary,
   PlanningProductionExportRequest,
   PlanningProductionLatestResponse,
   PlanningProductionResult,
@@ -41,7 +47,30 @@ function buildUrl(endpoint: string) {
 async function parseError(res: Response): Promise<string> {
   try {
     const text = await res.text();
-    return text || `HTTP ${res.status}`;
+    if (!text) {
+      return `HTTP ${res.status}`;
+    }
+
+    try {
+      const payload = JSON.parse(text) as { detail?: unknown; message?: unknown };
+      if (typeof payload.detail === "string" && payload.detail.trim()) {
+        return payload.detail.trim();
+      }
+      if (Array.isArray(payload.detail) && payload.detail.length > 0) {
+        const first = payload.detail[0] as Record<string, unknown>;
+        const msg = String(first?.msg ?? payload.detail[0] ?? "").trim();
+        if (msg) {
+          return msg;
+        }
+      }
+      if (typeof payload.message === "string" && payload.message.trim()) {
+        return payload.message.trim();
+      }
+    } catch {
+      // plain text body
+    }
+
+    return text;
   } catch {
     return `HTTP ${res.status}`;
   }
@@ -200,6 +229,10 @@ export async function getUploadCenter() {
   return getJSON<UploadCenterStatus>("/analytics/upload_center");
 }
 
+export async function getAppDataSnapshot() {
+  return getJSON<AppDataSnapshot>("/analytics/app_data_snapshot");
+}
+
 
 export async function getReadiness() {
   return getJSON<Readiness>("/analytics/readiness");
@@ -236,6 +269,26 @@ export async function getDatasetCompatibility() {
 
 export async function getForecastResults() {
   return getJSON<{ items: unknown[]; rowCount: number }>("/analytics/forecast_results");
+}
+
+export async function getAnalyticsV2Snapshot(scope = "global") {
+  const query = encodeURIComponent(scope);
+  return getJSON<AnalyticsV2Snapshot>(`/analytics/v2/snapshot?scope=${query}`);
+}
+
+export async function getAnalyticsV2FinancialScenarios(scope = "global") {
+  const query = encodeURIComponent(scope);
+  return getJSON<AnalyticsV2FinancialScenariosResponse>(
+    `/analytics/v2/financial_scenarios?scope=${query}`,
+  );
+}
+
+export async function computeAnalyticsV2Metrics(payload: AnalyticsV2MetricsComputeRequest) {
+  return postJSON<AnalyticsV2MetricsComputeResponse>("/analytics/v2/metrics/compute", payload);
+}
+
+export async function getFinanceDocumentsSummary() {
+  return getJSON<FinanceDocumentsSummary>("/analytics/finance_documents/summary");
 }
 
 export async function registerStructuredUpload(payload: StructuredUploadRegistrationRequest) {
