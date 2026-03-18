@@ -18,6 +18,8 @@ type ChatMessage = {
     blocks?: ExecutiveChatResponse["blocks"];
     limitations?: string[];
     missingData?: string[];
+    executionMeta?: Record<string, unknown>;
+    confidenceExplainer?: Record<string, unknown>;
   };
 };
 
@@ -45,6 +47,27 @@ function extractStringList(value: unknown): string[] {
   return value
     .map((item) => String(item ?? "").trim())
     .filter((item) => item.length > 0);
+}
+
+function extractRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function fallbackReasonLabel(value: unknown): string {
+  const reason = String(value ?? "").trim();
+  if (!reason || reason === "None" || reason === "none") return "";
+  const map: Record<string, string> = {
+    fallback_only: "Resposta em fallback local.",
+    provider_not_configured: "Provider externo nao configurado.",
+    openai_error: "Falha inesperada no provider externo.",
+    factual_analytics_v2: "Pergunta factual tratada pela camada analytics v2.",
+    factual_v2_error: "Falha na camada factual v2 com fallback contextual.",
+    invalid_openai_output: "Saida invalida do provider externo.",
+  };
+  return map[reason] ?? reason;
 }
 
 function confidenceLabel(confidence?: string) {
@@ -97,7 +120,13 @@ function contextHighlights(summary: Record<string, unknown> | null): string[] {
     highlights.push(`Confianca: ${confidenceLabelValue}`);
   }
   if (growthPct !== undefined && growthPct !== null) {
-    highlights.push(`Crescimento: ${Number(growthPct).toFixed(2)}%`);
+    const numericGrowth =
+      typeof growthPct === "number" ? growthPct : Number(String(growthPct).replace(",", "."));
+    if (Number.isFinite(numericGrowth)) {
+      highlights.push(`Crescimento: ${numericGrowth.toFixed(2)}%`);
+    } else {
+      highlights.push("Crescimento: N/A");
+    }
   }
   if (riskDriver) {
     highlights.push(`Driver de risco: ${riskDriver}`);
@@ -198,6 +227,8 @@ export default function ExecutiveChatWidget() {
             blocks: response.blocks,
             limitations: response.limitations,
             missingData: response.missing_data,
+            executionMeta: response.execution_meta ?? {},
+            confidenceExplainer: response.confidence_explainer ?? {},
           },
         },
       ]);
@@ -225,10 +256,135 @@ export default function ExecutiveChatWidget() {
       return <p className="whitespace-pre-wrap">{message.content}</p>;
     }
 
+    const executiveSummary = extractStringList((blocks as Record<string, unknown>).executive_summary);
+    const analysisContext = extractStringList((blocks as Record<string, unknown>).analysis_context);
+    const principalRisks = extractStringList((blocks as Record<string, unknown>).principal_risks);
+    const financialImpact = extractStringList((blocks as Record<string, unknown>).financial_impact);
     const direct = String(blocks.direct_answer ?? "").trim();
     const evidence = extractStringList(blocks.evidence);
     const risks = extractStringList(blocks.risks_limitations);
     const recommendation = extractStringList(blocks.executive_recommendation);
+    const nextSteps = extractStringList((blocks as Record<string, unknown>).next_steps);
+    const confidenceExplainer =
+      extractRecord((blocks as Record<string, unknown>).confidence_explainer) ??
+      message.meta?.confidenceExplainer ??
+      null;
+    const confidencePositives = extractStringList(confidenceExplainer?.fatores_positivos);
+    const confidenceNegatives = extractStringList(confidenceExplainer?.fatores_negativos);
+    const confidenceMissing = extractStringList(confidenceExplainer?.dados_faltantes);
+    const confidenceWarnings = extractStringList(confidenceExplainer?.parsing_warnings);
+    const decisionImpact = String(confidenceExplainer?.impacto_na_decisao ?? "").trim();
+    const fallbackReason = fallbackReasonLabel(
+      confidenceExplainer?.fallback_reason ?? message.meta?.executionMeta?.fallback_reason,
+    );
+    const confidenceScoreRaw = confidenceExplainer?.score;
+    const confidenceScore =
+      typeof confidenceScoreRaw === "number"
+        ? confidenceScoreRaw
+        : Number(String(confidenceScoreRaw ?? "").replace(",", "."));
+    const limitations = extractStringList(message.meta?.limitations);
+    const missingData = extractStringList(message.meta?.missingData);
+    const executionWarnings = extractStringList(message.meta?.executionMeta?.parsing_warnings);
+    const showExecutiveTemplate =
+      executiveSummary.length > 0 ||
+      analysisContext.length > 0 ||
+      principalRisks.length > 0 ||
+      financialImpact.length > 0 ||
+      nextSteps.length > 0;
+
+    if (showExecutiveTemplate) {
+      return (
+        <div className="space-y-2">
+          {executiveSummary.length > 0 && (
+            <section className="space-y-1">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Resumo executivo</p>
+              <ul className="list-disc pl-4 space-y-1">
+                {executiveSummary.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {analysisContext.length > 0 && (
+            <section className="space-y-1">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Contexto da analise</p>
+              <ul className="list-disc pl-4 space-y-1">
+                {analysisContext.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {principalRisks.length > 0 && (
+            <section className="space-y-1">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Principais riscos</p>
+              <ul className="list-disc pl-4 space-y-1">
+                {principalRisks.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {financialImpact.length > 0 && (
+            <section className="space-y-1">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Impacto financeiro</p>
+              <ul className="list-disc pl-4 space-y-1">
+                {financialImpact.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {recommendation.length > 0 && (
+            <section className="space-y-1">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                Recomendacao executiva
+              </p>
+              <ul className="list-disc pl-4 space-y-1">
+                {recommendation.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {(confidenceExplainer || limitations.length > 0 || missingData.length > 0 || fallbackReason) && (
+            <section className="space-y-1">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Confianca da resposta</p>
+              <ul className="list-disc pl-4 space-y-1">
+                {Number.isFinite(confidenceScore) && <li>{`Score: ${confidenceScore.toFixed(1)}/100`}</li>}
+                {confidencePositives.length > 0 && (
+                  <li>{`Fatores positivos: ${confidencePositives.join("; ")}`}</li>
+                )}
+                {confidenceNegatives.length > 0 && (
+                  <li>{`Fatores negativos: ${confidenceNegatives.join("; ")}`}</li>
+                )}
+                {confidenceMissing.length > 0 && <li>{`Dados faltantes: ${confidenceMissing.join("; ")}`}</li>}
+                {missingData.length > 0 && <li>{`Lacunas adicionais: ${missingData.join("; ")}`}</li>}
+                {fallbackReason && <li>{`Fallback: ${fallbackReason}`}</li>}
+                {confidenceWarnings.length > 0 && (
+                  <li>{`Alertas de parsing: ${confidenceWarnings.join("; ")}`}</li>
+                )}
+                {executionWarnings.length > 0 && (
+                  <li>{`Alertas de execucao: ${executionWarnings.join("; ")}`}</li>
+                )}
+                {decisionImpact && <li>{`Efeito na decisao: ${decisionImpact}`}</li>}
+                {limitations.length > 0 && <li>{`Limitacoes: ${limitations.join("; ")}`}</li>}
+              </ul>
+            </section>
+          )}
+          {nextSteps.length > 0 && (
+            <section className="space-y-1">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Proximos passos</p>
+              <ul className="list-disc pl-4 space-y-1">
+                {nextSteps.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
+      );
+    }
 
     return (
       <div className="space-y-2">
@@ -363,6 +519,11 @@ export default function ExecutiveChatWidget() {
                     {message.meta?.mode && (
                       <Badge variant="outline" className="text-[10px]">
                         modo: {message.meta.mode === "short" ? "curta" : "detalhada"}
+                      </Badge>
+                    )}
+                    {fallbackReasonLabel(message.meta?.executionMeta?.fallback_reason) && (
+                      <Badge variant="outline" className="text-[10px] border-slate-500/40 bg-slate-500/10 text-slate-100">
+                        fallback visivel
                       </Badge>
                     )}
                   </div>

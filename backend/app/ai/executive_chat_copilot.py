@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import json
+import math
 import re
 import unicodedata
 from typing import Any
@@ -2963,4 +2964,499 @@ def merge_executive_chat_openai_output(
         }
     )
     return merged_payload, _unique_keep_order(warnings)
+
+
+def _to_optional_number(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+        if math.isnan(parsed) or math.isinf(parsed):
+            return None
+        return parsed
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    normalized = raw.replace(" ", "")
+    if "," in normalized and "." in normalized:
+        if normalized.rfind(",") > normalized.rfind("."):
+            normalized = normalized.replace(".", "").replace(",", ".")
+        else:
+            normalized = normalized.replace(",", "")
+    elif "," in normalized:
+        normalized = normalized.replace(",", ".")
+    try:
+        parsed = float(normalized)
+        if math.isnan(parsed) or math.isinf(parsed):
+            return None
+        return parsed
+    except ValueError:
+        return None
+
+
+def _format_number_or_na(value: Any, *, digits: int = 2) -> str:
+    parsed = _to_optional_number(value)
+    if parsed is None:
+        return "N/A"
+    if digits == 0:
+        return f"{int(round(parsed)):,}".replace(",", ".")
+    return _format_number(parsed)
+
+
+def _format_currency_or_na(value: Any) -> str:
+    parsed = _to_optional_number(value)
+    if parsed is None:
+        return "N/A"
+    return _format_currency(parsed)
+
+
+def _fallback_reason_label(reason: str) -> str:
+    normalized = _normalize_text(reason)
+    mapping = {
+        "fallback only": "Execucao em fallback local deterministico.",
+        "provider not configured": "Provider externo nao configurado.",
+        "openai error": "Falha inesperada no provider externo.",
+        "network error": "Falha de rede na chamada do provider externo.",
+        "invalid key": "Credencial do provider externo invalida.",
+        "model not found": "Modelo configurado nao encontrado no provider externo.",
+        "factual analytics v2": "Pergunta factual direcionada para camada analytics v2.",
+        "factual v2 error": "Falha na camada factual v2; fallback contextual aplicado.",
+        "context pack insufficient": "Contexto insuficiente para provider externo.",
+        "invalid openai output": "Saida do provider externo invalida para o schema.",
+        "fallback_only": "Execucao em fallback local deterministico.",
+        "provider_not_configured": "Provider externo nao configurado.",
+        "openai_error": "Falha inesperada no provider externo.",
+        "network_error": "Falha de rede na chamada do provider externo.",
+        "invalid_key": "Credencial do provider externo invalida.",
+        "model_not_found": "Modelo configurado nao encontrado no provider externo.",
+        "factual_analytics_v2": "Pergunta factual direcionada para camada analytics v2.",
+        "factual_v2_error": "Falha na camada factual v2; fallback contextual aplicado.",
+        "context_pack_insufficient": "Contexto insuficiente para provider externo.",
+        "invalid_openai_output": "Saida do provider externo invalida para o schema.",
+    }
+    return mapping.get(normalized, reason or "Nao informado")
+
+
+def _growth_text_and_reason(growth_value: Any, base_value: Any) -> tuple[str, str | None]:
+    base = _to_optional_number(base_value)
+    growth = _to_optional_number(growth_value)
+    if base is None or base <= 0:
+        return "N/A", "Nao ha base historica suficiente para calcular crescimento."
+    if growth is None:
+        return "N/A", "Crescimento nao calculado por ausencia de dado valido."
+    return _format_pct(growth), None
+
+
+def _format_period_from_filters(filters: dict[str, Any]) -> str:
+    start = _safe_str(filters.get("effective_period_start") or filters.get("start_date"))
+    end = _safe_str(filters.get("effective_period_end") or filters.get("end_date"))
+    if start and end:
+        return f"{start} ate {end}"
+    if start and not end:
+        return f"a partir de {start}"
+    if not start and end:
+        return f"ate {end}"
+    return "periodo nao informado"
+
+
+def _base_label(dataset_id: str) -> str:
+    mapping = {
+        "production": "producao",
+        "sales_orders": "pedidos de venda",
+        "customers": "clientes",
+        "raw_material_inventory": "estoque de materia-prima",
+        "classification": "classificacao ABC/XYZ",
+        "finance_documents": "documentos financeiros",
+        "planning_result": "planejamento consolidado",
+        "analytics_v2": "metricas executivas v2",
+    }
+    return mapping.get(dataset_id, dataset_id)
+
+
+def _dedupe_text(values: list[Any]) -> list[str]:
+    return _unique_keep_order([_safe_str(value) for value in values if _safe_str(value)])
+
+
+def _confidence_score_from_payload(payload: dict[str, Any], context_summary: dict[str, Any]) -> float:
+    score = _to_optional_number(_safe_dict(context_summary.get("forecast_confidence")).get("score"))
+    if score is not None:
+        if score <= 1.0:
+            return round(score * 100.0, 1)
+        return round(score, 1)
+    confidence = _safe_str(payload.get("confidence"), "medium")
+    mapping = {"high": 82.0, "medium": 64.0, "low": 42.0}
+    return mapping.get(confidence, 64.0)
+
+
+def _metric_from_snapshot(snapshot: dict[str, Any], metric_id: str) -> dict[str, Any]:
+    return _safe_dict(_safe_dict(snapshot.get("metrics")).get(metric_id))
+
+
+def _estimate_note(metric_node: dict[str, Any]) -> str:
+    estimate_type = _safe_str(metric_node.get("estimate_type"), "documented")
+    status = _safe_str(metric_node.get("status"), "unavailable")
+    notes: list[str] = []
+    if estimate_type in {"estimated", "hybrid"}:
+        notes.append("estimado")
+    if status == "partial":
+        notes.append("parcial")
+    return f" ({', '.join(notes)})" if notes else ""
+
+
+def _coerce_text_list_from_any(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return _dedupe_text(value)
+    if isinstance(value, str):
+        return _dedupe_text(_split_text_list(value))
+    return []
+
+
+def _compose_executive_template_answer(blocks: dict[str, Any]) -> str:
+    summary_lines = _coerce_text_list_from_any(blocks.get("executive_summary"))
+    context_lines = _coerce_text_list_from_any(blocks.get("analysis_context"))
+    risk_lines = _coerce_text_list_from_any(blocks.get("principal_risks"))
+    financial_lines = _coerce_text_list_from_any(blocks.get("financial_impact"))
+    recommendation_lines = _coerce_text_list_from_any(blocks.get("executive_recommendation"))
+    next_steps = _coerce_text_list_from_any(blocks.get("next_steps"))
+    confidence_explainer = _safe_dict(blocks.get("confidence_explainer"))
+
+    confidence_lines: list[str] = []
+    score = _to_optional_number(confidence_explainer.get("score"))
+    if score is not None:
+        confidence_lines.append(f"Score: {score:.1f}/100.")
+    positives = _coerce_text_list_from_any(confidence_explainer.get("fatores_positivos"))
+    negatives = _coerce_text_list_from_any(confidence_explainer.get("fatores_negativos"))
+    missing = _coerce_text_list_from_any(confidence_explainer.get("dados_faltantes"))
+    decision_impact = _safe_str(confidence_explainer.get("impacto_na_decisao"))
+    fallback_reason = _safe_str(confidence_explainer.get("fallback_reason"))
+    parsing_warnings = _coerce_text_list_from_any(confidence_explainer.get("parsing_warnings"))
+    if positives:
+        confidence_lines.append("Fatores positivos: " + "; ".join(positives[:4]) + ".")
+    if negatives:
+        confidence_lines.append("Fatores negativos: " + "; ".join(negatives[:4]) + ".")
+    if missing:
+        confidence_lines.append("Dados faltantes: " + "; ".join(missing[:5]) + ".")
+    if fallback_reason:
+        confidence_lines.append("Fallback aplicado: " + fallback_reason + ".")
+    if parsing_warnings:
+        confidence_lines.append("Alertas de parsing: " + "; ".join(parsing_warnings[:4]) + ".")
+    if decision_impact:
+        confidence_lines.append("Efeito na decisao: " + decision_impact)
+
+    sections = [
+        "1. Resumo Executivo\n- " + "\n- ".join(summary_lines or ["Resumo executivo nao disponivel."]),
+        "2. Contexto da Analise\n- " + "\n- ".join(context_lines or ["Contexto nao disponivel."]),
+        "3. Principais Riscos\n- " + "\n- ".join(risk_lines or ["Sem riscos relevantes no recorte atual."]),
+        "4. Impacto Financeiro\n- " + "\n- ".join(
+            financial_lines or ["Impacto financeiro nao disponivel no contexto atual."]
+        ),
+        "5. Recomendacao Executiva\n- "
+        + "\n- ".join(recommendation_lines or ["Recomendacao executiva nao disponivel."]),
+        "6. Confianca da Resposta\n- "
+        + "\n- ".join(confidence_lines or ["Confianca nao informada para este contexto."]),
+        "7. Proximos Passos\n- " + "\n- ".join(next_steps or ["Sem proximos passos definidos."]),
+    ]
+    return "\n\n".join(sections)
+
+
+def apply_executive_response_template(
+    *,
+    payload: dict[str, Any],
+    mode: str,
+) -> dict[str, Any]:
+    out = dict(payload)
+    context_summary = _safe_dict(out.get("context_summary"))
+    totals = _safe_dict(context_summary.get("forecast_totals"))
+    risk_overview = _safe_dict(context_summary.get("risk_overview"))
+    coverage_overview = _safe_dict(context_summary.get("coverage_overview"))
+    finance_status = _safe_dict(context_summary.get("finance_status"))
+    filters_active = _safe_dict(context_summary.get("filters_active"))
+    factual_sources = _safe_dict(context_summary.get("factual_sources"))
+    executive_metrics_snapshot = _safe_dict(context_summary.get("executive_metrics_v2"))
+    execution_meta = _safe_dict(out.get("execution_meta"))
+
+    raw_blocks = _safe_dict(out.get("blocks"))
+    raw_recommendations = _coerce_text_list_from_any(raw_blocks.get("executive_recommendation"))
+    existing_limitations = _coerce_text_list_from_any(out.get("limitations"))
+    existing_missing_data = _coerce_text_list_from_any(out.get("missing_data"))
+    parsing_warnings = _coerce_text_list_from_any(execution_meta.get("parsing_warnings"))
+    fallback_reason_code = _safe_str(execution_meta.get("fallback_reason"))
+    fallback_reason_text = (
+        _fallback_reason_label(fallback_reason_code) if fallback_reason_code and fallback_reason_code != "None" else ""
+    )
+
+    forecast_final = _to_optional_number(totals.get("final_forecast"))
+    base_forecast = _to_optional_number(totals.get("base_forecast"))
+    growth_display, growth_reason = _growth_text_and_reason(
+        totals.get("growth_impact_pct"),
+        totals.get("base_forecast"),
+    )
+    estimated_revenue = _to_optional_number(totals.get("estimated_revenue"))
+    confidence_label = _safe_str(_safe_dict(context_summary.get("forecast_confidence")).get("label"), "nao informado")
+    confidence_score = _confidence_score_from_payload(out, context_summary)
+
+    top_risks = _safe_list(risk_overview.get("top_risks"))[:3]
+    total_forecast_for_ratio = _to_optional_number(totals.get("final_forecast")) or 0.0
+    summary_lines = [
+        (
+            f"O cenario atual projeta forecast final de {_format_number_or_na(forecast_final)} unidades, "
+            f"com crescimento {growth_display}."
+        ),
+        (
+            f"A confianca consolidada esta em {confidence_label}, com score {confidence_score:.1f}/100."
+        ),
+    ]
+    if top_risks:
+        top = _safe_dict(top_risks[0])
+        summary_lines.append(
+            "O risco prioritario esta em "
+            + f"{_safe_str(top.get('group'), '(sem grupo)')}/{_safe_str(top.get('abc_class'), '-')}, "
+            + f"driver {_safe_str(top.get('primary_driver_label'), 'nao informado')} "
+            + f"e criticidade {_safe_str(top.get('risk_level_label'), 'moderado')}."
+        )
+
+    context_lines = [
+        "Periodo analisado: " + _format_period_from_filters(filters_active) + ".",
+        "Unidade de leitura: volume em unidades e impactos financeiros em R$.",
+    ]
+    if growth_reason:
+        context_lines.append(growth_reason)
+
+    base_used: list[str] = []
+    for dataset_id, node in factual_sources.items():
+        if bool(_safe_dict(node).get("available")):
+            base_used.append(_base_label(dataset_id))
+    if _safe_str(finance_status.get("availability_status")) in {"ready", "partial"}:
+        base_used.append(_base_label("finance_documents"))
+    if executive_metrics_snapshot:
+        base_used.append(_base_label("analytics_v2"))
+    if bool(out.get("context_used")):
+        base_used.append(_base_label("planning_result"))
+    context_lines.append(
+        "Bases utilizadas: " + (", ".join(_unique_keep_order(base_used)) if base_used else "nenhuma base declarada") + "."
+    )
+    selected_method = _safe_str(context_summary.get("selected_method"), "nao informado")
+    method_selection_mode = _safe_str(context_summary.get("method_selection_mode"), "nao informado")
+    context_lines.append(
+        f"Metodo de planejamento: {selected_method} (modo {method_selection_mode})."
+    )
+
+    risk_lines: list[str] = []
+    for row in top_risks:
+        risk = _safe_dict(row)
+        item = (
+            f"{_safe_str(risk.get('group'), '(sem grupo)')}/"
+            f"{_safe_str(risk.get('abc_class'), '-')}"
+        )
+        driver = _safe_str(risk.get("primary_driver_label"), "nao informado")
+        criticality = _safe_str(risk.get("risk_level_label"), "moderado")
+        forecast_at_risk = _to_optional_number(risk.get("forecast"))
+        if (
+            forecast_at_risk is not None
+            and forecast_at_risk > 0
+            and estimated_revenue is not None
+            and estimated_revenue > 0
+            and total_forecast_for_ratio > 0
+        ):
+            revenue_proxy = (forecast_at_risk / total_forecast_for_ratio) * estimated_revenue
+            impact = f"{_format_currency(revenue_proxy)} de receita potencial exposta (estimativa)."
+        elif forecast_at_risk is not None and forecast_at_risk > 0:
+            impact = f"{_format_number(forecast_at_risk)} unidades com impacto operacional potencial."
+        else:
+            impact = "Impacto nao quantificado por falta de base."
+        risk_lines.append(
+            f"Item afetado: {item}; Driver: {driver}; Impacto estimado: {impact} Criticidade: {criticality}."
+        )
+    if not risk_lines:
+        risk_lines.append("Sem ranking de risco consolidado para o recorte atual.")
+
+    financial_lines: list[str] = []
+    projected_revenue_metric = _metric_from_snapshot(executive_metrics_snapshot, "projected_revenue")
+    contribution_margin_metric = _metric_from_snapshot(executive_metrics_snapshot, "contribution_margin")
+    contribution_margin_pct_metric = _metric_from_snapshot(executive_metrics_snapshot, "contribution_margin_pct")
+    total_working_capital_metric = _metric_from_snapshot(executive_metrics_snapshot, "total_working_capital")
+
+    if projected_revenue_metric:
+        financial_lines.append(
+            "Receita estimada: "
+            + _safe_str(projected_revenue_metric.get("formatted_value"), "N/A")
+            + _estimate_note(projected_revenue_metric)
+            + "."
+        )
+    else:
+        financial_lines.append(
+            "Receita estimada: " + _format_currency_or_na(estimated_revenue) + " (estimado por forecast e preco medio)."
+        )
+
+    if contribution_margin_pct_metric:
+        financial_lines.append(
+            "Margem de contribuicao (%): "
+            + _safe_str(contribution_margin_pct_metric.get("formatted_value"), "N/A")
+            + _estimate_note(contribution_margin_pct_metric)
+            + "."
+        )
+    elif contribution_margin_metric:
+        financial_lines.append(
+            "Margem de contribuicao: "
+            + _safe_str(contribution_margin_metric.get("formatted_value"), "N/A")
+            + _estimate_note(contribution_margin_metric)
+            + "."
+        )
+    else:
+        financial_lines.append(
+            "Margem: N/A. Use o proxy de receita e risco operacional ate a margem documental estar disponivel."
+        )
+
+    if total_working_capital_metric:
+        financial_lines.append(
+            "Capital empatado total: "
+            + _safe_str(total_working_capital_metric.get("formatted_value"), "N/A")
+            + _estimate_note(total_working_capital_metric)
+            + "."
+        )
+    else:
+        financial_lines.append("Capital empatado: N/A no contexto atual.")
+
+    projected_purchase = _to_optional_number(totals.get("projected_purchase_value_usd"))
+    if projected_purchase is not None and projected_purchase > 0:
+        financial_lines.append(
+            f"Necessidade de compra projetada (USD): US$ {projected_purchase:,.2f} (estimativa operacional)."
+        )
+
+    rupture_count = int(_to_number(coverage_overview.get("rupture_risk_count")))
+    missing_stock_count = int(_to_number(coverage_overview.get("missing_stock_count")))
+    recommendation_lines: list[str] = []
+    recommendation_lines.append(
+        "Acao: Revisar os 3 riscos prioritarios com Comercial, PCP e Compras."
+        + " Prioridade: alta."
+        + " Impacto esperado: reduzir risco de ruptura e perda de receita no proximo ciclo."
+        + " Prazo: ate 7 dias."
+    )
+    if confidence_score < 60.0 or existing_missing_data:
+        recommendation_lines.append(
+            "Acao: Revalidar premissas de forecast e dados faltantes antes do congelamento do plano."
+            + " Prioridade: alta."
+            + " Impacto esperado: aumentar confianca da decisao e reduzir retrabalho no S&OP."
+            + " Prazo: antes da proxima reuniao executiva."
+        )
+    else:
+        recommendation_lines.append(
+            "Acao: Executar monitoramento semanal dos desvios de demanda e cobertura."
+            + " Prioridade: media."
+            + " Impacto esperado: manter aderencia do plano e resposta rapida a variacoes."
+            + " Prazo: rotina semanal."
+        )
+    if _safe_str(finance_status.get("availability_status")) != "ready":
+        recommendation_lines.append(
+            "Acao: Fechar reconciliacao com Financas para validar margem e capital empatado."
+            + " Prioridade: media."
+            + " Impacto esperado: melhorar decisao de estoque, caixa e rentabilidade."
+            + " Prazo: no proximo ciclo mensal."
+        )
+    if raw_recommendations:
+        recommendation_lines.extend(
+            [
+                "Acao complementar: " + item + " Prioridade: media. Impacto esperado: reforcar execucao."
+                for item in raw_recommendations[:2]
+            ]
+        )
+    recommendation_lines = _unique_keep_order(recommendation_lines)
+
+    positive_factors: list[str] = []
+    negative_factors: list[str] = []
+
+    if base_forecast is not None and base_forecast > 0:
+        positive_factors.append("Ha base historica para leitura de forecast.")
+    if top_risks:
+        positive_factors.append("Ranking de riscos executivos esta disponivel.")
+    if executive_metrics_snapshot and _safe_str(executive_metrics_snapshot.get("status")) in {"ready", "partial"}:
+        positive_factors.append("Metricas executivas v2 foram incorporadas na resposta.")
+    if _safe_str(finance_status.get("availability_status")) == "ready":
+        positive_factors.append("Base financeira estruturada esta disponivel.")
+
+    if growth_reason:
+        negative_factors.append(growth_reason)
+    negative_factors.extend(existing_limitations[:4])
+    if fallback_reason_text:
+        negative_factors.append(fallback_reason_text)
+    negative_factors.extend(parsing_warnings[:3])
+    negative_factors = _unique_keep_order(negative_factors)
+
+    if confidence_score < 55.0 or missing_stock_count > 0:
+        decision_impact = (
+            "Use a resposta como direcional e valide premissas criticas antes de comprometer capacidade, estoque ou caixa."
+        )
+    elif confidence_score < 75.0:
+        decision_impact = (
+            "A resposta suporta decisao executiva, mas recomenda validacao pontual dos itens com maior risco."
+        )
+    else:
+        decision_impact = "A resposta pode ser usada como base principal para decisao no ciclo atual."
+
+    confidence_explainer = {
+        "score": round(confidence_score, 1),
+        "label": _safe_str(out.get("confidence"), "medium"),
+        "fatores_positivos": _unique_keep_order(positive_factors)[:6],
+        "fatores_negativos": negative_factors[:6],
+        "dados_faltantes": existing_missing_data[:8],
+        "fallback_reason": fallback_reason_text,
+        "parsing_warnings": parsing_warnings[:6],
+        "impacto_na_decisao": decision_impact,
+    }
+
+    next_steps = [
+        "Validar em ate 7 dias os 3 riscos criticos com dono, prazo e plano de mitigacao.",
+        "Consolidar alinhamento Comercial + Operacoes para grupos com maior impacto de risco.",
+        "Fechar checkpoint financeiro para confirmar impacto em margem, caixa e capital empatado.",
+    ]
+    if confidence_score >= 75.0 and not existing_missing_data:
+        next_steps[1] = "Executar acompanhamento semanal de desvio de forecast e cobertura por grupo critico."
+
+    blocks = {
+        "direct_answer": " ".join(summary_lines[:2]),
+        "evidence": context_lines[:3] + financial_lines[:2],
+        "risks_limitations": _unique_keep_order(risk_lines[:3] + existing_limitations)[:8],
+        "executive_recommendation": recommendation_lines[:5] if mode == "detailed" else recommendation_lines[:3],
+        "executive_summary": summary_lines[:3],
+        "analysis_context": context_lines[:6],
+        "principal_risks": risk_lines[:3],
+        "financial_impact": financial_lines[:5],
+        "confidence_explainer": confidence_explainer,
+        "next_steps": next_steps[:3],
+    }
+
+    answer = _compose_executive_template_answer(blocks)
+    data_points = _safe_list(out.get("data_points"))
+    data_points.extend(
+        [
+            {"label": "executive_confidence_score", "value": confidence_explainer["score"]},
+            {"label": "executive_growth_display", "value": growth_display},
+            {"label": "executive_fallback_reason", "value": fallback_reason_text or "none"},
+        ]
+    )
+
+    merged_limitations = _unique_keep_order(existing_limitations + negative_factors)
+    merged_missing_data = _unique_keep_order(existing_missing_data)
+    partial = bool(
+        out.get("partial")
+        or merged_missing_data
+        or fallback_reason_text
+        or _safe_str(executive_metrics_snapshot.get("status")) == "partial"
+        or _safe_str(executive_metrics_snapshot.get("status")) == "unavailable"
+    )
+
+    out.update(
+        {
+            "answer": answer,
+            "blocks": blocks,
+            "limitations": merged_limitations[:12],
+            "missing_data": merged_missing_data[:12],
+            "data_points": data_points[:16],
+            "partial": partial,
+            "confidence_explainer": confidence_explainer,
+        }
+    )
+    return out
 

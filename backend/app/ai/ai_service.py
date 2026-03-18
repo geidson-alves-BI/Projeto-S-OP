@@ -21,6 +21,7 @@ from ..schemas import (
 )
 from .config_store import AIConfigStore, DEFAULT_OPENAI_MODEL, FALLBACK_MODEL_NAME
 from .executive_chat import (
+    apply_executive_response_template,
     build_executive_chat_openai_prompt,
     build_executive_chat_context_payload,
     build_executive_chat_response,
@@ -119,6 +120,16 @@ _FACTUAL_INTENT_METRIC_IDS: dict[str, list[str]] = {
 _CONFIDENCE_RANK: dict[str, int] = {"low": 1, "medium": 2, "high": 3}
 _FACTUAL_PROVIDER_NAME = "analytics_v2"
 _FACTUAL_MODEL_NAME = "analytics_v2_metrics_compute"
+_EXECUTIVE_V2_METRIC_IDS: list[str] = [
+    "projected_revenue",
+    "contribution_margin",
+    "contribution_margin_pct",
+    "total_working_capital",
+    "inventory_carrying_cost",
+    "demand_vs_operation_gap",
+    "service_risk",
+    "scenario_priority",
+]
 
 
 class AIService:
@@ -367,6 +378,95 @@ class AIService:
         if rank == 2:
             return "medium"
         return "low"
+
+    def _dedupe_text(self, values: list[Any]) -> list[str]:
+        out: list[str] = []
+        for value in values:
+            text = str(value or "").strip()
+            if text and text not in out:
+                out.append(text)
+        return out
+
+    def _build_executive_v2_metric_snapshot(self) -> tuple[dict[str, Any], list[str]]:
+        warnings: list[str] = []
+        try:
+            result = analytics_engine_v2.compute_metrics(
+                metric_ids=_EXECUTIVE_V2_METRIC_IDS,
+                escopo="global",
+                filtros=None,
+                cenario="base",
+            )
+        except Exception:
+            logger.exception("Falha ao consolidar metricas executivas v2 para o chat executivo.")
+            warnings.append("executive_metrics_v2_error")
+            return (
+                {
+                    "status": "unavailable",
+                    "metric_ids": list(_EXECUTIVE_V2_METRIC_IDS),
+                    "metrics": {},
+                    "counts": {"ready": 0, "partial": 0, "unavailable": len(_EXECUTIVE_V2_METRIC_IDS)},
+                    "limitations": ["Camada executiva v2 indisponivel para esta resposta."],
+                    "missing_data": ["executive_metrics_v2"],
+                    "engine_version": None,
+                    "metric_registry_version": None,
+                },
+                warnings,
+            )
+
+        metrics_nodes: dict[str, dict[str, Any]] = {}
+        limitations: list[str] = []
+        missing_data: list[str] = []
+        ready = 0
+        partial = 0
+        unavailable = 0
+
+        for metric in result.get("metrics", []):
+            if not isinstance(metric, dict):
+                continue
+            metric_id = str(metric.get("metric_id") or "").strip()
+            if not metric_id:
+                continue
+            status = str(metric.get("status") or "unavailable")
+            if status == "ready":
+                ready += 1
+            elif status == "partial":
+                partial += 1
+            else:
+                unavailable += 1
+            metrics_nodes[metric_id] = {
+                "display_name": metric.get("display_name"),
+                "value": metric.get("value"),
+                "formatted_value": metric.get("formatted_value"),
+                "status": status,
+                "confianca": metric.get("confianca"),
+                "decision_grade": metric.get("decision_grade"),
+                "estimate_type": metric.get("estimate_type"),
+                "base_usada": metric.get("base_usada", []),
+                "limitations": metric.get("limitations", []),
+                "missing_data": metric.get("missing_data", []),
+            }
+            limitations.extend([str(item) for item in metric.get("limitations", []) if str(item).strip()])
+            missing_data.extend([str(item) for item in metric.get("missing_data", []) if str(item).strip()])
+
+        status = "ready"
+        if unavailable > 0 and (ready + partial) > 0:
+            status = "partial"
+        elif unavailable > 0 and ready == 0 and partial == 0:
+            status = "unavailable"
+        elif partial > 0:
+            status = "partial"
+
+        snapshot = {
+            "status": status,
+            "metric_ids": list(_EXECUTIVE_V2_METRIC_IDS),
+            "metrics": metrics_nodes,
+            "counts": {"ready": ready, "partial": partial, "unavailable": unavailable},
+            "limitations": self._dedupe_text(limitations)[:12],
+            "missing_data": self._dedupe_text(missing_data)[:12],
+            "engine_version": result.get("engine_version"),
+            "metric_registry_version": result.get("metric_registry_version"),
+        }
+        return snapshot, warnings
 
     def _build_factual_v2_payload(
         self,
@@ -642,6 +742,7 @@ class AIService:
         context_used = payload.get("context_used")
         if not isinstance(context_used, dict):
             context_used = {}
+        parsing_warnings = self._dedupe_text(parsing_warnings)
         context_used["execution"] = {
             "provider_used": provider_used,
             "model_used": model_used,
@@ -657,6 +758,48 @@ class AIService:
             "fallback_reason": fallback_reason,
             "parsing_warnings": parsing_warnings,
         }
+
+        if allow_openai_for_query:
+            executive_snapshot, executive_snapshot_warnings = self._build_executive_v2_metric_snapshot()
+            if executive_snapshot_warnings:
+                parsing_warnings = self._dedupe_text(parsing_warnings + executive_snapshot_warnings)
+                context_used["execution"]["parsing_warnings"] = parsing_warnings
+                payload["execution_meta"]["parsing_warnings"] = parsing_warnings
+
+            context_summary = payload.get("context_summary")
+            if not isinstance(context_summary, dict):
+                context_summary = {}
+            context_summary["executive_metrics_v2"] = executive_snapshot
+            payload["context_summary"] = context_summary
+
+            limitations = self._dedupe_text(
+                [*payload.get("limitations", []), *executive_snapshot.get("limitations", [])]
+            )
+            missing_data = self._dedupe_text(
+                [*payload.get("missing_data", []), *executive_snapshot.get("missing_data", [])]
+            )
+            payload["limitations"] = limitations[:12]
+            payload["missing_data"] = missing_data[:12]
+            if executive_snapshot.get("status") in {"partial", "unavailable"}:
+                payload["partial"] = True
+
+            payload = apply_executive_response_template(
+                payload=payload,
+                mode=request.mode,
+            )
+
+            context_used_after_template = payload.get("context_used")
+            if not isinstance(context_used_after_template, dict):
+                context_used_after_template = context_used
+            context_used_after_template["execution"] = context_used["execution"]
+            payload["context_used"] = context_used_after_template
+            payload["execution_meta"] = {
+                "provider_used": provider_used,
+                "model_used": model_used,
+                "fallback_triggered": fallback_triggered,
+                "fallback_reason": fallback_reason,
+                "parsing_warnings": parsing_warnings,
+            }
         return ExecutiveChatResponse.model_validate(payload)
 
     def executive_chat_context(

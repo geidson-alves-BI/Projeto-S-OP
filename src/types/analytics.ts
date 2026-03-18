@@ -645,6 +645,7 @@ export type ExecutiveChatResponse = {
     [key: string]: unknown;
   };
   confidence: "high" | "medium" | "low";
+  confidence_explainer?: Record<string, unknown>;
   partial: boolean;
   limitations: string[];
   missing_data: string[];

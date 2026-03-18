@@ -65,7 +65,7 @@ from .strategy_report import (
 )
 from .utils import ensure_datetime, to_dataframe
 
-app = FastAPI(title="Control Tower Engine", version="0.3.2")
+app = FastAPI(title="Control Tower Engine", version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,

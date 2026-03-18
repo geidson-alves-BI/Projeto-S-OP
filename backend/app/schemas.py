@@ -270,6 +270,7 @@ class ExecutiveChatResponse(BaseModel):
     response_mode: Literal["short", "detailed"] = "short"
     blocks: Dict[str, Any] = Field(default_factory=dict)
     confidence: Literal["high", "medium", "low"]
+    confidence_explainer: Dict[str, Any] = Field(default_factory=dict)
     partial: bool
     limitations: List[str]
     missing_data: List[str]
